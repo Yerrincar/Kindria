@@ -175,5 +175,6 @@ vite.config.ts.timestamp-*
 
 # .pdf and .epub
 
-libros/**/*.pdf
-libros/**/*.epub
+books/**/*.pdf
+books/**/*.epub
+!books/.gitkeep
