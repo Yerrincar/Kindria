@@ -4,7 +4,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = '/worker/pdf.worker.min.mjs';
 
 async function readPDF() {
     try {
-        const pdf = await pdfjsLib.getDocument("/libros/libro.pdf").promise;
+        const pdf = await pdfjsLib.getDocument("/books/libro.pdf").promise;
 
         const page = await pdf.getPage(1);
         const scale = 1.5;

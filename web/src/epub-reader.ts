@@ -1,11 +1,36 @@
-declare const ePub: any;
+let current = 0;
 
-const book = ePub("/libros/libro.epub")
+function loadChapter(n: number): void {
+    fetch(`/chapter?n=${n}`)
+        .then(res => res.text())
+        .then(html => {
+            const iframe = document.getElementById("viewer") as HTMLIFrameElement;
+            iframe.srcdoc = html;
+            current = n;
+        });
+}
 
-var rendition = book.renderTo("viewer", {
-    width: "100%",
-    height: 600,
-    spread: "always"
-});
+function nextChapter(): void {
+    loadChapter(current + 1);
+}
 
-rendition.display();
+function toggleNight(): void {
+    document.body.classList.toggle("night");
+}
+
+function setFontSize(size: string): void {
+    const iframe = document.getElementById("viewer") as HTMLIFrameElement;
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (doc && doc.body) {
+        doc.body.style.fontSize = `${size}px`;
+    }
+}
+
+window.onload = () => loadChapter(0);
+
+// Export for global access (optional)
+(window as any).toggleNight = toggleNight;
+(window as any).nextChapter = nextChapter;
+(window as any).setFontSize = setFontSize;
+
+
