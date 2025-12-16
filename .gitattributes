@@ -1,1 +1,1 @@
-./web/workers/* linguist-vendored
+./web/workers/pdf.worker.min.mjs linguist-vendored
