@@ -1,2 +1,1 @@
-web/workers/epub.min.js linguist-vendored
-web/workers/pdf.worker.min.js linguist-vendored
+./web/workers/* linguist-vendored
