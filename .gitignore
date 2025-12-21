@@ -79,7 +79,6 @@ vite.config.ts.timestamp-*
 .bun/install/cache
 .bun/install/tmp
 
-books/**/*.pdf
-books/**/*.epub
+books/*
 !books/.gitkeep
 
