@@ -1,5 +1,5 @@
 import type { PageLoad } from "./$types";
 
 export const load: PageLoad = ({ params }) => {
-    return { slug: params.bookName };
+    return { params: params.bookName };
 }
