@@ -12,6 +12,7 @@ func main() {
 
 	http.Handle("/books/", http.StripPrefix("/books/", http.FileServer(http.Dir("./books"))))
 	http.HandleFunc("/api/getbooks", api.ServeJson)
+	http.HandleFunc("/api/getCovers", api.ServerCover)
 	//API endpoint done, now the fron must fetch the data from it
 
 	fmt.Println("Kindria running on http://localhost:4545")

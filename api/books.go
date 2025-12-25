@@ -32,16 +32,11 @@ type Item struct {
 	Href string `xml:"href,attr"`
 }
 
-// Para el tema de las imagenes, de manera general vamos a buscar el tag cover en manifest/metadata, pero para aquellos casos
-// donde cover no sea la imagen, también vamos a meter un segundo check donde para coger esa imagen ha de ser mayor
-// a cierto mínimo de tamaño, y si no lo cumple, se cogerá la de mayor tamaño. Así tenemos las dos comprobaciones.
-// Si aún así no funciona, se puede añadir una funcionalidad donde la persona cambie manualmente la imagen.
-
 func ServerCover(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/jpeg")
 	path := "./books/"
 	bookPath := r.URL.Query().Get("book")
-	imagePath := r.URL.Query().Get("book")
+	imagePath := r.URL.Query().Get("path")
 	z, err := zip.OpenReader(path + bookPath)
 	if err != nil {
 		log.Printf("Err opening .epub file: %v", err)
