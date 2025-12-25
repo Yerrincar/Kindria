@@ -13,7 +13,7 @@ import (
 )
 
 type Package struct {
-	Metadata          MetaData `xml:"metadata"`
+	Metadata          MetaData `xml:"metadata" json:"metadata"`
 	Manifest          Manifest `xml:"manifest" json:"-"`
 	InternalCoverPath string   `json:"cover_path"`
 	BookFile          string   `json:"book_name"`
@@ -36,6 +36,32 @@ type Item struct {
 // donde cover no sea la imagen, también vamos a meter un segundo check donde para coger esa imagen ha de ser mayor
 // a cierto mínimo de tamaño, y si no lo cumple, se cogerá la de mayor tamaño. Así tenemos las dos comprobaciones.
 // Si aún así no funciona, se puede añadir una funcionalidad donde la persona cambie manualmente la imagen.
+
+func ServerCover(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/jpeg")
+	path := "./books/"
+	bookPath := r.URL.Query().Get("book")
+	imagePath := r.URL.Query().Get("book")
+	z, err := zip.OpenReader(path + bookPath)
+	if err != nil {
+		log.Printf("Err opening .epub file: %v", err)
+	}
+	defer z.Close()
+
+	for _, f := range z.File {
+		if strings.EqualFold(f.Name, imagePath) {
+			rc, err := f.Open()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			_, err = io.Copy(w, rc)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+	}
+}
 
 func ServeJson(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
