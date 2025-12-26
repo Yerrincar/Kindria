@@ -13,8 +13,12 @@ func main() {
 	http.Handle("/books/", http.StripPrefix("/books/", http.FileServer(http.Dir("./books"))))
 	http.HandleFunc("/api/getbooks", api.ServeJson)
 	http.HandleFunc("/api/getCovers", api.ServerCover)
-	//API endpoint done, now the fron must fetch the data from it
-
+	/* Fetching Done. Now I need to:
+	Add style
+	Learn how to save the book metadata into a database so the library loads instantly
+	Fix Reader
+	Kindle Detection Logic
+	*/
 	fmt.Println("Kindria running on http://localhost:4545")
 	log.Fatal(http.ListenAndServe(":4545", nil))
 }
