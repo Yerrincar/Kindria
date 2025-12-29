@@ -1,7 +1,7 @@
 package main
 
 import (
-	"Kindria/api"
+	"Kindria/internal/api/books"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,16 +9,10 @@ import (
 
 func main() {
 	http.Handle("/", http.FileServer(http.Dir("./web/build")))
-
 	http.Handle("/books/", http.StripPrefix("/books/", http.FileServer(http.Dir("./books"))))
-	http.HandleFunc("/api/getbooks", api.ServeJson)
-	http.HandleFunc("/api/getCovers", api.ServerCover)
-	/* Fetching Done. Now I need to:
-	Add style
-	Learn how to save the book metadata into a database so the library loads instantly
-	Fix Reader
-	Kindle Detection Logic
-	*/
+	http.HandleFunc("/api/books/getbooks", metadata.ServeJson)
+	http.HandleFunc("/api/books/getCovers", metadata.ServerCover)
+
 	fmt.Println("Kindria running on http://localhost:4545")
 	log.Fatal(http.ListenAndServe(":4545", nil))
 }

@@ -12,7 +12,7 @@
   let books: Book[] = [];
 
   onMount(async function () {
-    const endpointBooks = '/api/getbooks';
+    const endpointBooks = '/api/books/getbooks';
     const response = await fetch(endpointBooks);
     books = await response.json();
   });
@@ -26,7 +26,7 @@
     <div class="book-card">
       <a href="/reader/{encodeURIComponent(book.book_name)}">
         <img
-          src="/api/getCovers?book={book.book_name}&path={book.cover_path}"
+          src="/api/books/getCovers?book={book.book_name}&path={book.cover_path}"
           alt=""
         />
         <p>{book.metadata.title}</p>

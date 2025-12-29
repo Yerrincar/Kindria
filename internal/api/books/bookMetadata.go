@@ -1,4 +1,4 @@
-package api
+package metadata
 
 import (
 	"archive/zip"
@@ -30,32 +30,6 @@ type Manifest struct {
 type Item struct {
 	Id   string `xml:"id,attr"`
 	Href string `xml:"href,attr"`
-}
-
-func ServerCover(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/jpeg")
-	path := "./books/"
-	bookPath := r.URL.Query().Get("book")
-	imagePath := r.URL.Query().Get("path")
-	z, err := zip.OpenReader(path + bookPath)
-	if err != nil {
-		log.Printf("Err opening .epub file: %v", err)
-	}
-	defer z.Close()
-
-	for _, f := range z.File {
-		if strings.EqualFold(f.Name, imagePath) {
-			rc, err := f.Open()
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
-			_, err = io.Copy(w, rc)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
-			return
-		}
-	}
 }
 
 func ServeJson(w http.ResponseWriter, r *http.Request) {

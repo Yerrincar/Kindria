@@ -1,3 +1,14 @@
+# SQLite Database
+*.db
+*.sqlite
+*.sqlite3
+
+# SQLite Journal & WAL files (Crucial for performance/concurrency)
+*-wal
+*-shm
+*-journal
+
+ideas.md
 *.exe
 *.exe~
 *.dll
@@ -49,7 +60,7 @@ out
 .nuxt
 dist
 .output
-
+.db
 .cache/
 .vuepress/dist
 .temp
