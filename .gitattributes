@@ -1,1 +1,3 @@
 ./web/workers/*js linguist-vendored
+*.sql linguist-language=SQL
+*.sql linguist-detectable=true
