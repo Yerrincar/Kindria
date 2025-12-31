@@ -1,0 +1,6 @@
+{
+    "rules": {
+        "linebreak-after-select": "false",
+        "linebreak-after-from": "false"
+    }
+}
