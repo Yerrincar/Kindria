@@ -68,17 +68,20 @@ func (h *Handler) ServeJson(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) InsertBooks() ([]db.Book, error) {
 	ctx := context.Background()
 	path := "./books/"
-	insertedJson := make([]db.Book, 0)
 	fileNameMap := make(map[string]bool)
 
 	data, err := os.ReadDir(path)
 	if err != nil {
 		log.Fatal("Err while reading the books folder: ", err)
+		return nil, err
 	}
+
+	insertedJson := make([]db.Book, len(data))
 
 	fnSlice, err := h.Queries.SelectFileNames(ctx)
 	if err != nil {
 		log.Printf("Err trying to get all file names: %v", err)
+		return nil, err
 	}
 	for _, f := range fnSlice {
 		fileNameMap[f] = true
@@ -87,27 +90,29 @@ func (h *Handler) InsertBooks() ([]db.Book, error) {
 	for _, e := range data {
 		if fileNameMap[e.Name()] {
 			continue
-		} else {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), "epub") {
-				bookData, err := extractMetadata(e.Name())
-				if err != nil {
-					log.Printf("\nErr extracting data from book: %s | %v", e.Name(), err)
-				}
-				booksJson, err := h.Queries.InsertBooks(ctx, db.InsertBooksParams{
-					Title:       bookData.Metadata.Title,
-					Author:      bookData.Metadata.Author,
-					Description: bookData.Metadata.Description,
-					Genders:     bookData.Metadata.Genders,
-					Language:    bookData.Metadata.Language,
-					FileName:    bookData.BookFile,
-					Bookpath:    bookData.InternalCoverPath,
-				})
-				if err != nil {
-					return nil, err
-				}
-				insertedJson = append(insertedJson, booksJson...)
-			}
 		}
+
+		if e.IsDir() || !strings.HasSuffix(e.Name(), "epub") {
+			continue
+		}
+		bookData, err := extractMetadata(e.Name())
+		if err != nil {
+			log.Printf("\nErr extracting data from book: %s | %v", e.Name(), err)
+			continue
+		}
+		booksJson, err := h.Queries.InsertBooks(ctx, db.InsertBooksParams{
+			Title:       bookData.Metadata.Title,
+			Author:      bookData.Metadata.Author,
+			Description: bookData.Metadata.Description,
+			Genders:     bookData.Metadata.Genders,
+			Language:    bookData.Metadata.Language,
+			FileName:    bookData.BookFile,
+			Bookpath:    bookData.InternalCoverPath,
+		})
+		if err != nil {
+			return nil, err
+		}
+		insertedJson = append(insertedJson, booksJson...)
 	}
 	return insertedJson, nil
 }
@@ -118,6 +123,7 @@ func extractMetadata(src string) (*Package, error) {
 	r, err := zip.OpenReader(initialPath + src)
 	if err != nil {
 		log.Printf("Err opening .epub file: %v", err)
+		return nil, err
 	}
 
 	defer r.Close()
@@ -127,23 +133,28 @@ func extractMetadata(src string) (*Package, error) {
 			rc, err := f.Open()
 			if err != nil {
 				log.Printf("Err trying to access the .opf file: %v", err)
+				continue
 			}
 			rcBytes, err := io.ReadAll(rc)
 			if err != nil {
 				log.Printf("Err trying to read the content of the .opf file: %v", err)
+				continue
 			}
 			rc.Close()
 			err = xml.Unmarshal(rcBytes, &BookData)
 			if err != nil {
 				log.Printf("Err parsing xml data: %v", err)
+				continue
 			}
 			baseDir := path.Dir(f.Name)
 			for _, m := range BookData.Manifest.Items {
-				if m.Id == "cover" {
+				if m.Id == "cover" { //Could be a good idea to check something more robust than cover
 					BookData.InternalCoverPath = path.Join(baseDir, m.Href)
 					BookData.BookFile = src
+					break
 				}
 			}
+			break
 		}
 	}
 	return &BookData, nil
