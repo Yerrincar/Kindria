@@ -6,7 +6,7 @@ CREATE TABLE books (
     description TEXT NOT NULL,
     genders TEXT NOT NULL DEFAULT '[]',
     language TEXT NOT NULL,
-    file_name TEXT NOT NULL,
+    file_name TEXT NOT NULL UNIQUE,
     bookPath TEXT NOT NULL
 );
 

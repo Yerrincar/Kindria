@@ -112,3 +112,30 @@ func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
 	}
 	return items, nil
 }
+
+const selectFileNames = `-- name: SelectFileNames :many
+SELECT file_name FROM books
+`
+
+func (q *Queries) SelectFileNames(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, selectFileNames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var file_name string
+		if err := rows.Scan(&file_name); err != nil {
+			return nil, err
+		}
+		items = append(items, file_name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

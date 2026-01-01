@@ -9,11 +9,12 @@ import (
 	"encoding/xml"
 	"io"
 	"log"
-	_ "modernc.org/sqlite"
 	"net/http"
 	"os"
 	"path"
 	"strings"
+
+	_ "modernc.org/sqlite"
 )
 
 type Package struct {
@@ -67,17 +68,24 @@ func (h *Handler) ServeJson(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) InsertBooks() ([]db.Book, error) {
 	ctx := context.Background()
 	path := "./books/"
-	data, err := os.ReadDir(path)
 	insertedJson := make([]db.Book, 0)
+	fileNameMap := make(map[string]bool)
+
+	data, err := os.ReadDir(path)
 	if err != nil {
 		log.Fatal("Err while reading the books folder: ", err)
 	}
+
+	fnSlice, err := h.Queries.SelectFileNames(ctx)
+	if err != nil {
+		log.Printf("Err trying to get all file names: %v", err)
+	}
+	for _, f := range fnSlice {
+		fileNameMap[f] = true
+	}
+
 	for _, e := range data {
-		bookExists, err := h.Queries.CheckBookExists(ctx, e.Name())
-		if err != nil {
-			log.Printf("Err while checking if book exists: %v", err)
-		}
-		if bookExists == 1 {
+		if fileNameMap[e.Name()] {
 			continue
 		} else {
 			if !e.IsDir() && strings.HasSuffix(e.Name(), "epub") {
@@ -124,6 +132,7 @@ func extractMetadata(src string) (*Package, error) {
 			if err != nil {
 				log.Printf("Err trying to read the content of the .opf file: %v", err)
 			}
+			rc.Close()
 			err = xml.Unmarshal(rcBytes, &BookData)
 			if err != nil {
 				log.Printf("Err parsing xml data: %v", err)
