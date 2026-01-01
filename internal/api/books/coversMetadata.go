@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"archive/zip"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -20,10 +21,12 @@ func ServerCover(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/jpeg")
 	path := "./books/"
 	bookPath := r.URL.Query().Get("book")
+	fmt.Print("bookPath: ", bookPath)
 	imagePath := r.URL.Query().Get("path")
 	z, err := zip.OpenReader(path + bookPath)
 	if err != nil {
 		log.Printf("Err opening .epub file: %v", err)
+		return
 	}
 	defer z.Close()
 

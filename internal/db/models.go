@@ -5,7 +5,12 @@
 package db
 
 type Book struct {
-	ID     interface{}
-	Title  string
-	Author string
+	ID          int64  `json:"id"`
+	Title       string `json:"title"`
+	Author      string `json:"author"`
+	Description string `json:"description"`
+	Genders     string `json:"genders"`
+	Language    string `json:"language"`
+	FileName    string `json:"file_name"`
+	Bookpath    string `json:"bookpath"`
 }

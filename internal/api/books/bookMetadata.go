@@ -1,11 +1,15 @@
 package metadata
 
 import (
+	"Kindria/internal/db"
 	"archive/zip"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"encoding/xml"
 	"io"
 	"log"
+	_ "modernc.org/sqlite"
 	"net/http"
 	"os"
 	"path"
@@ -20,8 +24,11 @@ type Package struct {
 }
 
 type MetaData struct {
-	Author string `xml:"http://purl.org/dc/elements/1.1/ creator" json:"author"`
-	Title  string `xml:"http://purl.org/dc/elements/1.1/ title" json:"title"`
+	Author      string `xml:"http://purl.org/dc/elements/1.1/ creator" json:"author"`
+	Title       string `xml:"http://purl.org/dc/elements/1.1/ title" json:"title"`
+	Description string `xml:"http://purl.org/dc/elements/1.1/ description" json:"description"`
+	Genders     string `xml:"http://purl.org/dc/elements/1.1/ subject" json:"genders"`
+	Language    string `xml:"http://purl.org/dc/elements/1.1/ language" json:"ln"`
 }
 type Manifest struct {
 	Items []Item `xml:"item"`
@@ -32,10 +39,16 @@ type Item struct {
 	Href string `xml:"href,attr"`
 }
 
-func ServeJson(w http.ResponseWriter, r *http.Request) {
+type Handler struct {
+	Queries *db.Queries
+	DB      *sql.DB
+}
+
+func (h *Handler) ServeJson(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
 	switch r.Method {
 	case http.MethodGet:
-		structs, err := serveStruct()
+		structs, err := h.Queries.ListBooks(ctx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -51,23 +64,44 @@ func ServeJson(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func serveStruct() ([]*Package, error) {
+func (h *Handler) InsertBooks() ([]db.Book, error) {
+	ctx := context.Background()
 	path := "./books/"
 	data, err := os.ReadDir(path)
-	booksJson := make([]*Package, 0, len(data))
+	insertedJson := make([]db.Book, 0)
 	if err != nil {
 		log.Fatal("Err while reading the books folder: ", err)
 	}
 	for _, e := range data {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), "epub") {
-			bookData, err := extractMetadata(e.Name())
-			if err != nil {
-				log.Printf("\nErr extracting data from book: %s | %v", e.Name(), err)
+		bookExists, err := h.Queries.CheckBookExists(ctx, e.Name())
+		if err != nil {
+			log.Printf("Err while checking if book exists: %v", err)
+		}
+		if bookExists == 1 {
+			continue
+		} else {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), "epub") {
+				bookData, err := extractMetadata(e.Name())
+				if err != nil {
+					log.Printf("\nErr extracting data from book: %s | %v", e.Name(), err)
+				}
+				booksJson, err := h.Queries.InsertBooks(ctx, db.InsertBooksParams{
+					Title:       bookData.Metadata.Title,
+					Author:      bookData.Metadata.Author,
+					Description: bookData.Metadata.Description,
+					Genders:     bookData.Metadata.Genders,
+					Language:    bookData.Metadata.Language,
+					FileName:    bookData.BookFile,
+					Bookpath:    bookData.InternalCoverPath,
+				})
+				if err != nil {
+					return nil, err
+				}
+				insertedJson = append(insertedJson, booksJson...)
 			}
-			booksJson = append(booksJson, bookData)
 		}
 	}
-	return booksJson, nil
+	return insertedJson, nil
 }
 
 func extractMetadata(src string) (*Package, error) {

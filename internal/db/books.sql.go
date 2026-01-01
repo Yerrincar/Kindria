@@ -9,12 +9,41 @@ import (
 	"context"
 )
 
-const listBooks = `-- name: ListBooks :many
-SELECT id, title, author FROM books ORDER BY title
+const checkBookExists = `-- name: CheckBookExists :one
+SELECT COUNT(*) FROM books WHERE file_name = ?
 `
 
-func (q *Queries) ListBooks(ctx context.Context) ([]Book, error) {
-	rows, err := q.db.QueryContext(ctx, listBooks)
+func (q *Queries) CheckBookExists(ctx context.Context, fileName string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, checkBookExists, fileName)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const insertBooks = `-- name: InsertBooks :many
+INSERT INTO books (title, author, description, genders, language, file_name, bookPath) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, title, author, description, genders, language, file_name, bookpath
+`
+
+type InsertBooksParams struct {
+	Title       string `json:"title"`
+	Author      string `json:"author"`
+	Description string `json:"description"`
+	Genders     string `json:"genders"`
+	Language    string `json:"language"`
+	FileName    string `json:"file_name"`
+	Bookpath    string `json:"bookpath"`
+}
+
+func (q *Queries) InsertBooks(ctx context.Context, arg InsertBooksParams) ([]Book, error) {
+	rows, err := q.db.QueryContext(ctx, insertBooks,
+		arg.Title,
+		arg.Author,
+		arg.Description,
+		arg.Genders,
+		arg.Language,
+		arg.FileName,
+		arg.Bookpath,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -22,7 +51,55 @@ func (q *Queries) ListBooks(ctx context.Context) ([]Book, error) {
 	var items []Book
 	for rows.Next() {
 		var i Book
-		if err := rows.Scan(&i.ID, &i.Title, &i.Author); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Author,
+			&i.Description,
+			&i.Genders,
+			&i.Language,
+			&i.FileName,
+			&i.Bookpath,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBooks = `-- name: ListBooks :many
+SELECT title, author, file_name, bookPath FROM books ORDER BY title
+`
+
+type ListBooksRow struct {
+	Title    string `json:"title"`
+	Author   string `json:"author"`
+	FileName string `json:"file_name"`
+	Bookpath string `json:"bookpath"`
+}
+
+func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listBooks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBooksRow
+	for rows.Next() {
+		var i ListBooksRow
+		if err := rows.Scan(
+			&i.Title,
+			&i.Author,
+			&i.FileName,
+			&i.Bookpath,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

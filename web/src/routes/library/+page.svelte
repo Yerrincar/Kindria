@@ -1,12 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   interface Book {
-    book_name: string;
-    cover_path: string;
-    metadata: {
-      title: string;
-      author: string;
-    };
+    file_name: string;
+    bookpath: string;
+    title: string;
+    author: string;
   }
 
   let books: Book[] = [];
@@ -24,12 +22,12 @@
 <div class="library">
   {#each books as book}
     <div class="book-card">
-      <a href="/reader/{encodeURIComponent(book.book_name)}">
+      <a href="/reader/{encodeURIComponent(book.file_name)}">
         <img
-          src="/api/books/getCovers?book={book.book_name}&path={book.cover_path}"
+          src="/api/books/getCovers?book={book.file_name}&path={book.bookpath}"
           alt=""
         />
-        <p>{book.metadata.title}</p>
+        <p>{book.title}</p>
       </a>
     </div>
   {/each}

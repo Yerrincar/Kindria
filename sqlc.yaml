@@ -7,3 +7,7 @@ sql:
       go:
         package: "db"
         out: "internal/db"
+        overrides:
+          - column: "books.genres"
+            go_type: "encoding/json.RawMessage"
+        emit_json_tags: true
