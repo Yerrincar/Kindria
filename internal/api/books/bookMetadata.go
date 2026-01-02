@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -43,6 +44,15 @@ type Item struct {
 type Handler struct {
 	Queries *db.Queries
 	DB      *sql.DB
+}
+
+type jsonWrapper struct {
+	NumFound int     `json:"numFound"`
+	Docs     []OLDoc `json:"docs"`
+}
+
+type OLDoc struct {
+	Cover_i int `json:"cover_i"`
 }
 
 func (h *Handler) ServeJson(w http.ResponseWriter, r *http.Request) {
@@ -158,4 +168,47 @@ func extractMetadata(src string) (*Package, error) {
 		}
 	}
 	return &BookData, nil
+}
+
+func searchOpenLibrary(title, author string) (int, error) {
+	var o jsonWrapper
+
+	u, err := url.Parse("https://openlibrary.org/search.json?title=reyes+de+la+tierra+salvaje&author=Nicholas+Eames")
+	if err != nil {
+		log.Printf("Error trying to parse base url: %v", err)
+		return 0, err
+	}
+	q := u.Query()
+	q.Set("title", title)
+	q.Set("author", author)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	if err != nil {
+		return 0, err
+	}
+	contact := os.Getenv("OLContact")
+	req.Header.Set("User-Agent", "Kindria/0.1 (contact: )"+contact)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+
+	defer resp.Body.Close()
+
+	err = json.NewDecoder(resp.Body).Decode(&o)
+	if err != nil {
+		return 0, err
+	}
+
+	if o.NumFound == 0 {
+		return 0, err
+	}
+	coverId := o.Docs[0].Cover_i
+	if coverId > 0 {
+		return coverId, nil
+	}
+	return 0, nil
 }
