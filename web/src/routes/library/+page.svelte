@@ -23,10 +23,7 @@
   {#each books as book}
     <div class="book-card">
       <a href="/reader/{encodeURIComponent(book.file_name)}">
-        <img
-          src="/api/books/getCovers?book={book.file_name}&path={book.bookpath}"
-          alt=""
-        />
+        <img src="/covers/{book.title}.jpg" alt="" />
         <p>{book.title}</p>
       </a>
     </div>

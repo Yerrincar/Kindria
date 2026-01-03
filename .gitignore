@@ -93,4 +93,7 @@ vite.config.ts.timestamp-*
 
 books/*
 !books/.gitkeep
+cache/covers/*
+!cache/covers/.gitkeep
+
 

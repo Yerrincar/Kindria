@@ -9,13 +9,12 @@ import (
 	"encoding/xml"
 	"io"
 	"log"
+	_ "modernc.org/sqlite"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"strings"
-
-	_ "modernc.org/sqlite"
 )
 
 type Package struct {
@@ -110,6 +109,10 @@ func (h *Handler) InsertBooks() ([]db.Book, error) {
 			log.Printf("\nErr extracting data from book: %s | %v", e.Name(), err)
 			continue
 		}
+		coverPath, err := bookData.ProcessCover()
+		if err != nil {
+			log.Printf("Error trying to get cover path: %v", err)
+		}
 		booksJson, err := h.Queries.InsertBooks(ctx, db.InsertBooksParams{
 			Title:       bookData.Metadata.Title,
 			Author:      bookData.Metadata.Author,
@@ -117,7 +120,7 @@ func (h *Handler) InsertBooks() ([]db.Book, error) {
 			Genders:     bookData.Metadata.Genders,
 			Language:    bookData.Metadata.Language,
 			FileName:    bookData.BookFile,
-			Bookpath:    bookData.InternalCoverPath,
+			Bookpath:    coverPath,
 		})
 		if err != nil {
 			return nil, err
@@ -170,7 +173,7 @@ func extractMetadata(src string) (*Package, error) {
 	return &BookData, nil
 }
 
-func searchOpenLibrary(title, author string) (int, error) {
+func SearchOpenLibrary(title, author string) (int, error) {
 	var o jsonWrapper
 
 	u, err := url.Parse("https://openlibrary.org/search.json?title=reyes+de+la+tierra+salvaje&author=Nicholas+Eames")
@@ -188,7 +191,7 @@ func searchOpenLibrary(title, author string) (int, error) {
 		return 0, err
 	}
 	contact := os.Getenv("OLContact")
-	req.Header.Set("User-Agent", "Kindria/0.1 (contact: )"+contact)
+	req.Header.Set("User-Agent", "Kindria/0.1 (contact: "+contact+")")
 
 	client := &http.Client{}
 	resp, err := client.Do(req)

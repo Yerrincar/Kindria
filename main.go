@@ -22,9 +22,9 @@ func main() {
 	fmt.Print(insertion)
 	http.Handle("/", http.FileServer(http.Dir("./web/build")))
 	http.Handle("/books/", http.StripPrefix("/books/", http.FileServer(http.Dir("./books"))))
+	http.Handle("/covers/", http.StripPrefix("/covers/", http.FileServer(http.Dir("./cache/covers"))))
 
 	http.HandleFunc("/api/books/getbooks", h.ServeJson)
-	http.HandleFunc("/api/books/getCovers", metadata.ServerCover)
 
 	fmt.Println("Kindria running on http://localhost:4545")
 	log.Fatal(http.ListenAndServe(":4545", nil))
