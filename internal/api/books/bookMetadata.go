@@ -176,7 +176,7 @@ func extractMetadata(src string) (*Package, error) {
 func SearchOpenLibrary(title, author string) (int, error) {
 	var o jsonWrapper
 
-	u, err := url.Parse("https://openlibrary.org/search.json?title=reyes+de+la+tierra+salvaje&author=Nicholas+Eames")
+	u, err := url.Parse("https://openlibrary.org/search.json?title=reyes+de+la+tierra+salvaje&author=Nicholas+Eames&limit=2&offset=0")
 	if err != nil {
 		log.Printf("Error trying to parse base url: %v", err)
 		return 0, err

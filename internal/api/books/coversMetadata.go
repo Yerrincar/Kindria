@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"archive/zip"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -13,14 +12,12 @@ import (
 	"time"
 )
 
-/*
-	 Logic:
-		1. Check cover in the cache/database so we don't need to fecth again. (I need to add the save to cache|database)
-		2. If not, extract local metadata: author, title, etc
-		3. Search external api with that info, if we find the cover, return it and save it to the cache/database
-		4. If the previous step fails, use the .jpeg/.jpg/.png file inside the .epub file
-*/
 func (p *Package) ProcessCover() (string, error) {
+	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", p.Metadata.Title) + ".jpg")
+	_, err := os.Stat(finalPath)
+	if err == nil {
+		return "", nil
+	}
 	coverApiPath, err := p.extractCoverFromApi()
 	if err != nil {
 		log.Printf("Eror trying to call extractCoverFromApi func: %v", err)
@@ -30,7 +27,6 @@ func (p *Package) ProcessCover() (string, error) {
 	}
 
 	coverEpubPath, err := p.extractCoverFromEpub()
-	fmt.Println("COVER EPUB:", coverEpubPath)
 	if err != nil {
 		log.Printf("Eror trying to call extractCoverFromEpub func: %v", err)
 	}
@@ -42,7 +38,7 @@ func (p *Package) ProcessCover() (string, error) {
 }
 
 func (p *Package) extractCoverFromEpub() (string, error) {
-	finalPath := ("./cache/covers/" + strings.TrimSpace(p.Metadata.Title) + ".jpg")
+	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", p.Metadata.Title) + ".jpg")
 	path := "./books/"
 	bookPath := p.InternalCoverPath
 	z, err := zip.OpenReader(path + p.BookFile)
@@ -75,8 +71,7 @@ func (p *Package) extractCoverFromEpub() (string, error) {
 }
 
 func (p *Package) extractCoverFromApi() (string, error) {
-	// URL Covers IP https://covers.openlibrary.org/b/id/13540618-L.jpg
-	finalPath := ("./cache/covers/" + strings.TrimSpace(p.Metadata.Title) + ".jpg")
+	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", p.Metadata.Title) + ".jpg")
 	cover_i, err := SearchOpenLibrary(p.Metadata.Title, p.Metadata.Author)
 	if err != nil {
 		log.Printf("Err getting cover_i for Covers API: %v", err)
