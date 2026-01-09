@@ -13,20 +13,18 @@ import (
 )
 
 func (p *Package) ProcessCover() (string, error) {
+	initialPath := p.GoodQualityCover()
+	apiBooks := make([]string, 0)
 	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", p.Metadata.Title) + ".jpg")
 	_, err := os.Stat(finalPath)
 	if err == nil {
 		return "", nil
 	}
-	coverApiPath, err := p.extractCoverFromApi()
-	if err != nil {
-		log.Printf("Eror trying to call extractCoverFromApi func: %v", err)
-	}
-	if coverApiPath != "" {
-		return coverApiPath, nil
+	if initialPath == "" {
+		apiBooks = append(apiBooks, p.Metadata.Title)
 	}
 
-	coverEpubPath, err := p.extractCoverFromEpub()
+	coverEpubPath, err := p.extractCoverFromEpub(initialPath)
 	if err != nil {
 		log.Printf("Eror trying to call extractCoverFromEpub func: %v", err)
 	}
@@ -34,11 +32,22 @@ func (p *Package) ProcessCover() (string, error) {
 		return coverEpubPath, nil
 	}
 
+	for _, c := range apiBooks {
+		coverApiPath, err := p.extractCoverFromApi(c)
+		if err != nil {
+			log.Printf("Eror trying to call extractCoverFromApi func: %v", err)
+		}
+		if coverApiPath != "" {
+			return coverApiPath, nil
+		}
+
+	}
+
 	return "", nil
 }
 
-func (p *Package) extractCoverFromEpub() (string, error) {
-	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", p.Metadata.Title) + ".jpg")
+func (p *Package) extractCoverFromEpub(name string) (string, error) {
+	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", name))
 	path := "./books/"
 	bookPath := p.InternalCoverPath
 	z, err := zip.OpenReader(path + p.BookFile)
@@ -70,8 +79,8 @@ func (p *Package) extractCoverFromEpub() (string, error) {
 	return finalPath, err
 }
 
-func (p *Package) extractCoverFromApi() (string, error) {
-	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", p.Metadata.Title) + ".jpg")
+func (p *Package) extractCoverFromApi(name string) (string, error) {
+	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", name) + ".jpg")
 	cover_i, err := SearchOpenLibrary(p.Metadata.Title, p.Metadata.Author)
 	if err != nil {
 		log.Printf("Err getting cover_i for Covers API: %v", err)
