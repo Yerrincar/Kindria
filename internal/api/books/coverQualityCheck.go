@@ -10,9 +10,10 @@ import (
 
 func (p *Package) GoodQualityCover() (finalPath string) {
 	bookPath := ("./books/" + p.BookFile)
-	dimensionCap := 0.666
+	dimensionCap := 2.0 / 3.0
 	uniqueColors := 5
-	finalPath = ""
+	winner := ""
+	bestScore := 0
 	possibleCovers := make([]*zip.File, 0)
 	r, err := zip.OpenReader(bookPath)
 	if err != nil {
@@ -22,7 +23,7 @@ func (p *Package) GoodQualityCover() (finalPath string) {
 	defer r.Close()
 
 	for _, z := range r.File {
-		if strings.HasSuffix(z.Name, ".jpg") {
+		if strings.HasSuffix(z.Name, ".jpg") || strings.HasSuffix(z.Name, "jpeg") {
 			rc, err := z.Open()
 			if err != nil {
 				return err.Error()
@@ -46,6 +47,7 @@ func (p *Package) GoodQualityCover() (finalPath string) {
 	}
 
 	for _, c := range possibleCovers {
+		currentScore := 0
 		rc, err := c.Open()
 		if err != nil {
 			return err.Error()
@@ -55,17 +57,29 @@ func (p *Package) GoodQualityCover() (finalPath string) {
 		if err != nil {
 			return err.Error()
 		}
+		currentScore = coverDecoding.Bounds().Dx() * coverDecoding.Bounds().Dy()
+		if strings.Contains(c.Name, "cover") {
+			currentScore *= 2
+		}
+		if float64(coverDecoding.Bounds().Dx())/float64(coverDecoding.Bounds().Dy()) == dimensionCap {
+			currentScore *= 2
+		}
 
 		colorMap := make(map[color.Color]int)
-		for i := coverDecoding.Bounds().Min.X; i < coverDecoding.Bounds().Max.X; i += 100 {
-			for j := coverDecoding.Bounds().Min.Y; j < coverDecoding.Bounds().Max.Y; j += 100 {
+		for i := coverDecoding.Bounds().Min.X; i < coverDecoding.Bounds().Max.X; i += 50 {
+			for j := coverDecoding.Bounds().Min.Y; j < coverDecoding.Bounds().Max.Y; j += 50 {
 				colorMap[coverDecoding.At(i, j)] += 1
 			}
 		}
 		if len(colorMap) >= uniqueColors {
-			finalPath = c.Name
-			return finalPath
+			currentScore += len(colorMap)
 		}
+
+		if currentScore > bestScore {
+			bestScore = currentScore
+			winner = c.Name
+		}
+
 	}
-	return finalPath
+	return winner
 }

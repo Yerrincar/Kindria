@@ -14,14 +14,19 @@ import (
 
 func (p *Package) ProcessCover() (string, error) {
 	initialPath := p.GoodQualityCover()
-	apiBooks := make([]string, 0)
-	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", p.Metadata.Title) + ".jpg")
+	finalPath := ("./cache/covers/" + strings.ReplaceAll(p.Metadata.Title, " ", "_") + ".jpg")
 	_, err := os.Stat(finalPath)
 	if err == nil {
-		return "", nil
+		return finalPath, nil
 	}
 	if initialPath == "" {
-		apiBooks = append(apiBooks, p.Metadata.Title)
+		tempCoverEpubPath, err := p.extractCoverFromEpub(p.InternalCoverPath)
+		if err != nil {
+			return "", err
+		}
+		go p.extractCoverFromApi()
+		return tempCoverEpubPath, nil
+
 	}
 
 	coverEpubPath, err := p.extractCoverFromEpub(initialPath)
@@ -32,25 +37,13 @@ func (p *Package) ProcessCover() (string, error) {
 		return coverEpubPath, nil
 	}
 
-	for _, c := range apiBooks {
-		coverApiPath, err := p.extractCoverFromApi(c)
-		if err != nil {
-			log.Printf("Eror trying to call extractCoverFromApi func: %v", err)
-		}
-		if coverApiPath != "" {
-			return coverApiPath, nil
-		}
-
-	}
-
 	return "", nil
 }
 
-func (p *Package) extractCoverFromEpub(name string) (string, error) {
-	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", name))
-	path := "./books/"
-	bookPath := p.InternalCoverPath
-	z, err := zip.OpenReader(path + p.BookFile)
+func (p *Package) extractCoverFromEpub(path string) (string, error) {
+	finalPath := ("./cache/covers/" + strings.ReplaceAll(p.Metadata.Title, " ", "_") + ".jpg")
+	completePath := "./books/" + p.BookFile
+	z, err := zip.OpenReader(completePath)
 	if err != nil {
 		log.Printf("Error opening .epub file: %v", err)
 		return "", err
@@ -59,7 +52,7 @@ func (p *Package) extractCoverFromEpub(name string) (string, error) {
 	defer z.Close()
 
 	for _, f := range z.File {
-		if strings.EqualFold(f.Name, bookPath) {
+		if strings.EqualFold(f.Name, path) {
 			rc, err := f.Open()
 			if err != nil {
 				return "", err
@@ -79,8 +72,8 @@ func (p *Package) extractCoverFromEpub(name string) (string, error) {
 	return finalPath, err
 }
 
-func (p *Package) extractCoverFromApi(name string) (string, error) {
-	finalPath := ("./cache/covers/" + strings.ReplaceAll("", "_", name) + ".jpg")
+func (p *Package) extractCoverFromApi() (string, error) {
+	finalPath := ("./cache/covers/" + strings.ReplaceAll(p.Metadata.Title, " ", "_") + ".jpg")
 	cover_i, err := SearchOpenLibrary(p.Metadata.Title, p.Metadata.Author)
 	if err != nil {
 		log.Printf("Err getting cover_i for Covers API: %v", err)

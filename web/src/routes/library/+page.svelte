@@ -23,7 +23,7 @@
   {#each books as book}
     <div class="book-card">
       <a href="/reader/{encodeURIComponent(book.file_name)}">
-        <img src="/covers/{book.title}.jpg" alt="" />
+        <img src="/covers/{book.title.replaceAll(' ', '_')}.jpg" alt={book.title}/>
         <p>{book.title}</p>
       </a>
     </div>
