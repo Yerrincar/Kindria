@@ -17,6 +17,11 @@ import (
 	"strings"
 )
 
+type CoverManager struct {
+	coversQueue chan *Package
+	pckg        *Package
+}
+
 type Package struct {
 	Metadata          MetaData `xml:"metadata" json:"metadata"`
 	Manifest          Manifest `xml:"manifest" json:"-"`
@@ -43,6 +48,7 @@ type Item struct {
 type Handler struct {
 	Queries *db.Queries
 	DB      *sql.DB
+	CM      *CoverManager
 }
 
 type jsonWrapper struct {
@@ -109,7 +115,7 @@ func (h *Handler) InsertBooks() ([]db.Book, error) {
 			log.Printf("\nErr extracting data from book: %s | %v", e.Name(), err)
 			continue
 		}
-		coverPath, err := bookData.ProcessCover()
+		coverPath, err := h.CM.ProcessCover()
 		if err != nil {
 			log.Printf("Error trying to get cover path: %v", err)
 		}

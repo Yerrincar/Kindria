@@ -12,24 +12,24 @@ import (
 	"time"
 )
 
-func (p *Package) ProcessCover() (string, error) {
-	initialPath := p.GoodQualityCover()
-	finalPath := ("./cache/covers/" + strings.ReplaceAll(p.Metadata.Title, " ", "_") + ".jpg")
+func (c *CoverManager) ProcessCover() (string, error) {
+	initialPath := c.pckg.GoodQualityCover()
+	finalPath := ("./cache/covers/" + strings.ReplaceAll(c.pckg.Metadata.Title, " ", "_") + ".jpg")
 	_, err := os.Stat(finalPath)
 	if err == nil {
 		return finalPath, nil
 	}
 	if initialPath == "" {
-		tempCoverEpubPath, err := p.extractCoverFromEpub(p.InternalCoverPath)
+		tempCoverEpubPath, err := c.pckg.extractCoverFromEpub(c.pckg.InternalCoverPath)
 		if err != nil {
 			return "", err
 		}
-		go p.extractCoverFromApi()
+		c.coversQueue <- c.pckg
 		return tempCoverEpubPath, nil
 
 	}
 
-	coverEpubPath, err := p.extractCoverFromEpub(initialPath)
+	coverEpubPath, err := c.pckg.extractCoverFromEpub(initialPath)
 	if err != nil {
 		log.Printf("Eror trying to call extractCoverFromEpub func: %v", err)
 	}
