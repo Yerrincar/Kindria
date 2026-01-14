@@ -19,7 +19,12 @@ import (
 
 type CoverManager struct {
 	coversQueue chan *Package
-	pckg        *Package
+}
+
+func NewCoverManager() *CoverManager {
+	return &CoverManager{
+		coversQueue: make(chan *Package),
+	}
 }
 
 type Package struct {
@@ -115,7 +120,7 @@ func (h *Handler) InsertBooks() ([]db.Book, error) {
 			log.Printf("\nErr extracting data from book: %s | %v", e.Name(), err)
 			continue
 		}
-		coverPath, err := h.CM.ProcessCover()
+		coverPath, err := h.CM.ProcessCover(bookData)
 		if err != nil {
 			log.Printf("Error trying to get cover path: %v", err)
 		}

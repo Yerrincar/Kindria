@@ -14,11 +14,13 @@ func main() {
 	if err != nil {
 		log.Printf("Error opening database:  %v", err)
 	}
-	h := &metadata.Handler{Queries: db.New(database), DB: database}
+	h := &metadata.Handler{Queries: db.New(database), DB: database, CM: metadata.NewCoverManager()}
 	_, err = h.InsertBooks()
 	if err != nil {
 		fmt.Printf("Error inserting books:  %v", err)
 	}
+	go h.UpdateCacheCovers()
+
 	http.Handle("/", http.FileServer(http.Dir("./web/build")))
 	http.Handle("/books/", http.StripPrefix("/books/", http.FileServer(http.Dir("./books"))))
 	http.Handle("/covers/", http.StripPrefix("/covers/", http.FileServer(http.Dir("./cache/covers"))))
