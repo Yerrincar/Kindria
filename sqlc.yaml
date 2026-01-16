@@ -1,12 +1,12 @@
 version: "2"
 sql:
   - engine: "sqlite"
-    schema: "internal/platform/storage/migrations"
-    queries: "internal/platform/storage/queries"
+    schema: "internal/core/platform/storage/migrations"
+    queries: "internal/core/platform/storage/queries"
     gen:
       go:
         package: "db"
-        out: "internal/db"
+        out: "internal/core/db"
         overrides:
           - column: "books.genres"
             go_type: "encoding/json.RawMessage"

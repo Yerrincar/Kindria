@@ -1,7 +1,7 @@
 package metadata
 
 import (
-	"Kindria/internal/db"
+	"Kindria/internal/core/db"
 	"archive/zip"
 	"context"
 	"database/sql"
@@ -225,4 +225,25 @@ func SearchOpenLibrary(title, author string) (int, error) {
 		return coverId, nil
 	}
 	return 0, nil
+}
+
+func (h *Handler) SelectBooks() ([]*Package, error) {
+	books := make([]*Package, 0)
+	rows, err := h.Queries.SelectAllBooks(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		p := &Package{
+			Metadata: MetaData{
+				Title:       row.Title,
+				Author:      row.Author,
+				Description: row.Description,
+				Genders:     row.Genders,
+				Language:    row.Language,
+			},
+		}
+		books = append(books, p)
+	}
+	return books, nil
 }

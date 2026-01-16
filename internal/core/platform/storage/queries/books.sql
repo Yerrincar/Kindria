@@ -10,5 +10,6 @@ SELECT file_name FROM books;
 -- name: CheckBookExists :one
 SELECT COUNT(*) FROM books WHERE file_name = ?;
 
-
+-- name: SelectAllBooks :many 
+SELECT * FROM books ORDER BY title;
 

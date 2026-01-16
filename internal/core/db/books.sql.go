@@ -113,6 +113,42 @@ func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
 	return items, nil
 }
 
+const selectAllBooks = `-- name: SelectAllBooks :many
+SELECT id, title, author, description, genders, language, file_name, bookpath FROM books ORDER BY title
+`
+
+func (q *Queries) SelectAllBooks(ctx context.Context) ([]Book, error) {
+	rows, err := q.db.QueryContext(ctx, selectAllBooks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Book
+	for rows.Next() {
+		var i Book
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Author,
+			&i.Description,
+			&i.Genders,
+			&i.Language,
+			&i.FileName,
+			&i.Bookpath,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const selectFileNames = `-- name: SelectFileNames :many
 SELECT file_name FROM books
 `
