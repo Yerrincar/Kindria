@@ -23,7 +23,7 @@ type CoverManager struct {
 
 func NewCoverManager() *CoverManager {
 	return &CoverManager{
-		coversQueue: make(chan *Package),
+		coversQueue: make(chan *Package, 128),
 	}
 }
 
@@ -31,7 +31,7 @@ type Package struct {
 	Metadata          MetaData `xml:"metadata" json:"metadata"`
 	Manifest          Manifest `xml:"manifest" json:"-"`
 	InternalCoverPath string   `json:"cover_path"`
-	BookFile          string   `json:"book_name"`
+	BookFile          string   `db:"file_name" json:"book_name"`
 }
 
 type MetaData struct {
@@ -242,8 +242,17 @@ func (h *Handler) SelectBooks() ([]*Package, error) {
 				Genders:     row.Genders,
 				Language:    row.Language,
 			},
+			BookFile: row.FileName,
 		}
 		books = append(books, p)
 	}
 	return books, nil
+}
+
+func (h *Handler) SelectBookPath(bookFile string) (string, error) {
+	path, err := h.Queries.SelectBookPath(context.Background(), bookFile)
+	if err != nil {
+		return "", err
+	}
+	return path, nil
 }

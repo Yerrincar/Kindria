@@ -149,6 +149,17 @@ func (q *Queries) SelectAllBooks(ctx context.Context) ([]Book, error) {
 	return items, nil
 }
 
+const selectBookPath = `-- name: SelectBookPath :one
+SELECT bookPath FROM books WHERE file_name = ?
+`
+
+func (q *Queries) SelectBookPath(ctx context.Context, fileName string) (string, error) {
+	row := q.db.QueryRowContext(ctx, selectBookPath, fileName)
+	var bookpath string
+	err := row.Scan(&bookpath)
+	return bookpath, err
+}
+
 const selectFileNames = `-- name: SelectFileNames :many
 SELECT file_name FROM books
 `

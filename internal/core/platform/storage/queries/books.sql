@@ -7,6 +7,9 @@ INSERT INTO books (title, author, description, genders, language, file_name, boo
 -- name: SelectFileNames :many
 SELECT file_name FROM books;
 
+-- name: SelectBookPath :one 
+SELECT bookPath FROM books WHERE file_name = ?;
+
 -- name: CheckBookExists :one
 SELECT COUNT(*) FROM books WHERE file_name = ?;
 
