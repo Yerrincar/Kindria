@@ -11,6 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/disintegration/imaging"
+	"golang.org/x/sys/unix"
+	"image/color"
 )
 
 var (
@@ -36,6 +38,8 @@ type Model struct {
 	height            int
 	dynamicCardWidth  int
 	dynamicCardHeight int
+	cellPixelWidth    int
+	cellPixelHeight   int
 	cols              int
 	paginator         paginator.Model
 	covers            map[int]string
@@ -82,13 +86,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		debugLog("WindowSize: w=%d h=%d", msg.Width, msg.Height)
 		m.width, m.height = msg.Width, msg.Height
-		m.cols = 6
-		m.dynamicCardWidth = (m.width / m.cols) - 3
-		m.dynamicCardHeight = int(float64(m.dynamicCardWidth) * 0.66)
+		m.cols = 5
+		m.dynamicCardWidth = (m.width / m.cols) - 6
+		m.dynamicCardHeight = int(float64(m.dynamicCardWidth)*0.75) - 3
 		if m.dynamicCardWidth < 10 {
 			m.cols = 2 // Fallback if too small
 			m.dynamicCardWidth = (m.width / 2) - 3
 			m.dynamicCardHeight = int(float64(m.dynamicCardWidth) * 1.0)
+		}
+		m.cellPixelWidth, m.cellPixelHeight = getCellPixelSize(m.width, m.height)
+		if m.cellPixelWidth > 0 && m.cellPixelHeight > 0 {
+			debugLog("CellPixels: w=%d h=%d", m.cellPixelWidth, m.cellPixelHeight)
+		} else {
+			debugLog("CellPixels: unavailable, using fallback")
 		}
 		m.paginator.PerPage = m.cols * (m.height / (m.dynamicCardHeight + 2))
 		m.paginator.SetTotalPages(len(m.books))
@@ -97,7 +107,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		debugLog("Key: %s", msg.String())
 		switch msg.String() {
-
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "up", "k":
@@ -196,26 +205,48 @@ func (m *Model) syncVisibleWidget() tea.Cmd {
 	booksToLoad := m.books[start:end]
 	curWidth := m.dynamicCardWidth
 	curHeight := m.dynamicCardHeight
+	curCellPixelWidth := m.cellPixelWidth
+	curCellPixelHeight := m.cellPixelHeight
 	debugLog("syncVisibleWidget queued: start=%d end=%d books=%d", start, end, len(booksToLoad))
 	return func() tea.Msg {
 		debugLog("syncVisibleWidget start: start=%d end=%d books=%d", start, end, len(booksToLoad))
-		for i, _ := range booksToLoad {
-			//	path, err := m.handler.SelectBookPath(book.BookFile)
-			//	if err != nil {
-			//		log.Printf("Error getting book path for book: "+book.BookFile+"%v: ", err)
-			//		continue
-			//	}
-			targetPixelWidth := curWidth * 48
-			targetPixelHeight := curHeight * 72
-			srcImage, err := imaging.Open("./cache/covers/Reyes_de_la_Tierra_Salvaje.jpg")
+		protocol := termimg.DetectProtocol()
+		features := termimg.QueryTerminalFeatures()
+		for i, book := range booksToLoad {
+			path, err := m.handler.SelectBookPath(book.BookFile)
+			if err != nil {
+				log.Printf("Error getting book path for book: "+book.BookFile+path+"%v: ", err)
+				continue
+			}
+			if path == "" {
+				continue
+			}
+			targetPixelWidth := curWidth
+			targetPixelHeight := curHeight
+			if curCellPixelWidth > 0 && curCellPixelHeight > 0 {
+				targetPixelWidth = curWidth * curCellPixelWidth
+				targetPixelHeight = curHeight * curCellPixelHeight
+			} else if features != nil && features.FontWidth > 0 && features.FontHeight > 0 {
+				targetPixelWidth = curWidth * features.FontWidth
+				targetPixelHeight = curHeight * features.FontHeight
+			}
+			srcImage, err := imaging.Open(path)
 			if err != nil {
 				continue
 			}
-			resizedImage := imaging.Fit(srcImage, targetPixelWidth, targetPixelHeight, imaging.CatmullRom)
-			resizedImage = imaging.Sharpen(resizedImage, 1.5)
-			cover := termimg.NewImageWidgetFromImage(resizedImage)
 
-			cover.SetSize(curWidth, curHeight).SetProtocol(termimg.Auto)
+			resizedImage := imaging.Fit(srcImage, targetPixelWidth, targetPixelHeight, imaging.Lanczos)
+			if resizedImage.Bounds().Dx() != targetPixelWidth || resizedImage.Bounds().Dy() != targetPixelHeight {
+				canvas := imaging.New(targetPixelWidth, targetPixelHeight, color.NRGBA{R: 10, G: 10, B: 10, A: 255})
+				resizedImage = imaging.PasteCenter(canvas, resizedImage)
+			}
+
+			img := termimg.New(resizedImage).Scale(termimg.ScaleNone)
+			if protocol == termimg.Halfblocks {
+				img = img.Dither(true).DitherMode(termimg.DitherFloydSteinberg)
+			}
+			cover := termimg.NewImageWidget(img)
+			cover.SetSize(curWidth, curHeight).SetProtocol(protocol)
 			finalCover := ""
 			if cover != nil {
 				coverRendered, err := cover.Render()
@@ -232,4 +263,30 @@ func (m *Model) syncVisibleWidget() tea.Cmd {
 		debugLog("syncVisibleWidget end: loaded=%d", len(localCovers))
 		return coversLoadedMsg(localCovers)
 	}
+}
+
+func getCellPixelSize(cols, rows int) (int, int) {
+	if cols <= 0 || rows <= 0 {
+		return 0, 0
+	}
+	var f *os.File
+	var err error
+	if f, err = os.OpenFile("/dev/tty", unix.O_NOCTTY|unix.O_CLOEXEC|unix.O_NDELAY|unix.O_RDWR, 0666); err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+	sz, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
+	if err != nil {
+		return 0, 0
+	}
+	debugLog("Winsize: rows=%d cols=%d xpixel=%d ypixel=%d", sz.Row, sz.Col, sz.Xpixel, sz.Ypixel)
+	if sz.Col == 0 || sz.Row == 0 || sz.Xpixel == 0 || sz.Ypixel == 0 {
+		return 0, 0
+	}
+	cellW := int(sz.Xpixel) / int(sz.Col)
+	cellH := int(sz.Ypixel) / int(sz.Row)
+	if cellW <= 0 || cellH <= 0 {
+		return 0, 0
+	}
+	return cellW, cellH
 }
