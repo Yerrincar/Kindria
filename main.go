@@ -13,7 +13,6 @@ import (
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
-	//"net/http"
 )
 
 func main() {
@@ -27,40 +26,35 @@ func main() {
 			log.Printf("SIGUSR1 goroutine dump:\n%s", buf[:n])
 		}
 	}()
-	log.Printf("Abrimos DB")
+	log.Printf("Opening DB")
 	database, err := sql.Open("sqlite", "./books.db")
 	if err != nil {
 		log.Printf("Error opening database:  %v", err)
 	}
 	h := &metadata.Handler{Queries: db.New(database), DB: database, CM: metadata.NewCoverManager()}
-	log.Printf("DB Abierta")
+	log.Printf("DB Open")
 	//go h.UpdateCacheCovers()
 
-	log.Printf("Insertamos libros")
+	log.Printf("Inserting books")
 	_, err = h.InsertBooks()
 	if err != nil {
 		fmt.Printf("Error inserting books:  %v", err)
 	}
-	log.Printf("Libros Insertados")
-	log.Printf("Seleccionamo libros")
+	log.Printf("Books inserted")
+	log.Printf("Selecting books")
 	books, err := h.SelectBooks()
 	if err != nil {
 		fmt.Printf("Error inserting books:  %v", err)
 	}
-	log.Printf("Libros Seleccionados")
+	log.Printf("Books selected")
 
-	log.Printf("Iniciamos TUI")
+	log.Printf("Initializing TUI")
 	p := tea.NewProgram(tui.InitialModel(books, h), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		log.Fatalf("Error starting Kindria: %v", err)
 	}
-	log.Printf("TUI Iniciada")
-	//http.Handle("/", http.FileServer(http.Dir("./web/build")))
-	//http.Handle("/books/", http.StripPrefix("/books/", http.FileServer(http.Dir(".././books"))))
-	//http.Handle("/covers/", http.StripPrefix("/covers/", http.FileServer(http.Dir("./cache/covers"))))
+	CleanUpEscapeCode := "\x1b[2J\x1b[3J\x1b[H"
+	fmt.Print(CleanUpEscapeCode)
 
-	//http.HandleFunc("/api/books/getbooks", h.ServeJson)
-
-	//log.Println("Kindria running on http://localhost:4545")
-	//log.Fatal(http.ListenAndServe(":4545", nil))
+	log.Printf("TUI Initialized")
 }

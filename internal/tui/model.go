@@ -2,9 +2,12 @@ package tui
 
 import (
 	metadata "Kindria/internal/core/api/books"
+	"Kindria/internal/utils"
 	"log"
 	"os"
 	"strings"
+
+	"image/color"
 
 	"github.com/blacktop/go-termimg"
 	"github.com/charmbracelet/bubbles/paginator"
@@ -12,7 +15,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/disintegration/imaging"
 	"golang.org/x/sys/unix"
-	"image/color"
+)
+
+type sessionState int
+
+const (
+	homeState sessionState = iota
+	librayState
 )
 
 var (
@@ -22,13 +31,17 @@ var (
 	special   = lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"}
 
 	list = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), true, true, true, true).
-		BorderForeground(subtle).
-		MarginRight(1)
+		BorderForeground(subtle)
 
 	listFocused = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), true, true, true, true).
 			BorderForeground(highlight).
 			MarginRight(1)
 )
+
+type MainModel struct {
+	state   sessionState
+	library *Model
+}
 
 type Model struct {
 	books             []*metadata.Package
@@ -57,22 +70,86 @@ func debugLog(format string, args ...any) {
 	log.Printf("tui: "+format, args...)
 }
 
-func InitialModel(b []*metadata.Package, h *metadata.Handler) *Model {
+/* ----- MainModel ----- */
+
+func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 
 	p := paginator.New()
 	p.Type = paginator.Dots
 	p.ActiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "252"}).Render("•")
 	p.InactiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "250", Dark: "238"}).Render("•")
 	debugLog("InitialModel: books=%d", len(b))
-	return &Model{
+	library := &Model{
 		books:     b,
 		selected:  make(map[int]struct{}),
 		paginator: p,
 		covers:    make(map[int]string),
 		handler:   *h,
 	}
+	return &MainModel{
+		state:   homeState,
+		library: library,
+	}
 }
 
+func (m *MainModel) Init() tea.Cmd {
+	debugLog("Init")
+	return nil
+}
+
+func (m *MainModel) View() string {
+	fig := utils.Fig()
+	if m.state == homeState {
+		return lipgloss.Place(m.library.width, m.library.height, lipgloss.Center, lipgloss.Center,
+			fig+"\n  󱉟 Library                  l")
+	}
+	return m.library.View()
+}
+
+func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+
+		case "l":
+			if m.state == homeState {
+				m.state = librayState
+				return m, m.library.syncVisibleWidget()
+			}
+		}
+	case tea.WindowSizeMsg:
+		m.library.width = msg.Width
+		m.library.height = msg.Height
+		m.library.cols = 5
+		m.library.dynamicCardWidth = (m.library.width / m.library.cols) - 3
+		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.75) - 3
+		if m.library.dynamicCardWidth < 10 {
+			m.library.cols = 2
+			m.library.dynamicCardWidth = (m.library.width / 2) - 3
+			m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth) * 0.75)
+		}
+		m.library.cellPixelWidth, m.library.cellPixelHeight = getCellPixelSize(m.library.width, m.library.height)
+		if m.library.cellPixelWidth > 0 && m.library.cellPixelHeight > 0 {
+			debugLog("CellPixels: w=%d h=%d", m.library.cellPixelWidth, m.library.cellPixelHeight)
+		} else {
+			debugLog("CellPixels: unavailable, using fallback")
+		}
+		m.library.paginator.PerPage = m.library.cols * (m.library.height / (m.library.dynamicCardHeight + 2))
+		m.library.paginator.SetTotalPages(len(m.library.books))
+	}
+
+	if m.state == librayState {
+		newLib, cmd := m.library.Update(msg)
+		m.library = newLib.(*Model)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+/* ----- Library ----- */
 func (m *Model) Init() tea.Cmd {
 	debugLog("Init")
 	return nil
@@ -85,24 +162,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		debugLog("WindowSize: w=%d h=%d", msg.Width, msg.Height)
-		m.width, m.height = msg.Width, msg.Height
-		m.cols = 5
-		m.dynamicCardWidth = (m.width / m.cols) - 6
-		m.dynamicCardHeight = int(float64(m.dynamicCardWidth)*0.75) - 3
-		if m.dynamicCardWidth < 10 {
-			m.cols = 2 // Fallback if too small
-			m.dynamicCardWidth = (m.width / 2) - 3
-			m.dynamicCardHeight = int(float64(m.dynamicCardWidth) * 1.0)
-		}
-		m.cellPixelWidth, m.cellPixelHeight = getCellPixelSize(m.width, m.height)
-		if m.cellPixelWidth > 0 && m.cellPixelHeight > 0 {
-			debugLog("CellPixels: w=%d h=%d", m.cellPixelWidth, m.cellPixelHeight)
-		} else {
-			debugLog("CellPixels: unavailable, using fallback")
-		}
-		m.paginator.PerPage = m.cols * (m.height / (m.dynamicCardHeight + 2))
-		m.paginator.SetTotalPages(len(m.books))
-		cmdSync = m.syncVisibleWidget()
+	//	m.width, m.height = msg.Width, msg.Height
+	//	m.cols = 5
+	//	m.dynamicCardWidth = (m.width / m.cols) - 3
+	//	m.dynamicCardHeight = int(float64(m.dynamicCardWidth)*0.75) - 3
+	//	if m.dynamicCardWidth < 10 {
+	//		m.cols = 2
+	//		m.dynamicCardWidth = (m.width / 2) - 3
+	//		m.dynamicCardHeight = int(float64(m.dynamicCardWidth) * 0.75)
+	//	}
+	//	m.cellPixelWidth, m.cellPixelHeight = getCellPixelSize(m.width, m.height)
+	//	if m.cellPixelWidth > 0 && m.cellPixelHeight > 0 {
+	//		debugLog("CellPixels: w=%d h=%d", m.cellPixelWidth, m.cellPixelHeight)
+	//	} else {
+	//		debugLog("CellPixels: unavailable, using fallback")
+	//	}
+	//	m.paginator.PerPage = m.cols * (m.height / (m.dynamicCardHeight + 2))
+	//	m.paginator.SetTotalPages(len(m.books))
+	//	cmdSync = m.syncVisibleWidget()
 
 	case tea.KeyMsg:
 		debugLog("Key: %s", msg.String())
@@ -151,10 +228,12 @@ func (m Model) View() string {
 	for i, _ := range m.books[start:end] {
 		absoluteIndex := i + start
 		cover, ok := m.covers[absoluteIndex]
+
+		b.WriteString(string(strings.Count(cover, "\n")))
 		if !ok || cover == "" {
 			cover += strings.Repeat("\n", 10)
 		}
-		style := list.Copy().
+		style := list.
 			Width(m.dynamicCardWidth).
 			Height(m.dynamicCardHeight)
 
@@ -179,26 +258,6 @@ func (m Model) View() string {
 	return b.String()
 }
 
-//func (m Model) renderBookCard(p *metadata.Package, isFocused bool, imageString string) string {
-//	lipglossStyle := list
-//	if isFocused {
-//		lipglossStyle = listFocused
-//	}
-//
-//	//line11 := truncString(p.Metadata.Title, 18)
-//	//line12 := truncString(p.Metadata.Author, 18)
-//
-//	finalCard := lipglossStyle.Render(lipgloss.JoinVertical(lipgloss.Left, imageString))
-//	return finalCard
-//}
-
-//func truncString(s string, max int) string {
-//	if len(s) > max {
-//		return s[:max]
-//	}
-//	return s
-//}
-
 func (m *Model) syncVisibleWidget() tea.Cmd {
 	start, end := m.paginator.GetSliceBounds(len(m.books))
 	localCovers := make(map[int]string)
@@ -215,13 +274,13 @@ func (m *Model) syncVisibleWidget() tea.Cmd {
 		for i, book := range booksToLoad {
 			path, err := m.handler.SelectBookPath(book.BookFile)
 			if err != nil {
-				log.Printf("Error getting book path for book: "+book.BookFile+path+"%v: ", err)
+				log.Printf("Error getting book path for book: "+book.BookFile+"%v: ", err)
 				continue
 			}
 			if path == "" {
 				continue
 			}
-			targetPixelWidth := curWidth
+			targetPixelWidth := curWidth - 2
 			targetPixelHeight := curHeight
 			if curCellPixelWidth > 0 && curCellPixelHeight > 0 {
 				targetPixelWidth = curWidth * curCellPixelWidth
@@ -251,6 +310,8 @@ func (m *Model) syncVisibleWidget() tea.Cmd {
 			if cover != nil {
 				coverRendered, err := cover.Render()
 				coverRendered = lipgloss.NewStyle().Width(curWidth).Height(curHeight).Render(coverRendered)
+				style := list
+				style.Width(img.Bounds.Dx()).Height(img.Bounds.Dy())
 				if err != nil {
 					log.Printf("Err rendering cover: %v ", err)
 				}
