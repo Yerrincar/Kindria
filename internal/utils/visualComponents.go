@@ -44,3 +44,18 @@ func intToString(n int) string {
 	}
 	return string(buf[i:])
 }
+
+func ToSansBold(text string) string {
+	var result []rune
+	for _, r := range text {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			result = append(result, 0x1D5D4+(r-'A'))
+		case r >= 'a' && r <= 'z':
+			result = append(result, 0x1D5EE+(r-'a'))
+		default:
+			result = append(result, r)
+		}
+	}
+	return string(result)
+}

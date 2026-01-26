@@ -18,15 +18,19 @@ import (
 )
 
 type sessionState int
+type focusArea int
 
 const (
 	homeState sessionState = iota
 	librayState
+	sideFocus focusArea = iota
+	contentFocus
 )
 
 var (
 	normal    = lipgloss.Color("#EEEEEE")
 	subtle    = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#383838"}
+	borders   = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#8a2be2"}
 	highlight = lipgloss.AdaptiveColor{Light: "#874BFD", Dark: "#7D56F4"}
 	special   = lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"}
 
@@ -46,9 +50,12 @@ type MainModel struct {
 type Model struct {
 	books             []*metadata.Package
 	cursor            int
+	sideBarCursor     int
+	activeArea        int
 	selected          map[int]struct{}
 	width             int
 	height            int
+	sideBarWidth      int
 	dynamicCardWidth  int
 	dynamicCardHeight int
 	cellPixelWidth    int
@@ -101,7 +108,7 @@ func (m *MainModel) View() string {
 	fig := utils.Fig()
 	if m.state == homeState {
 		return lipgloss.Place(m.library.width, m.library.height, lipgloss.Center, lipgloss.Center,
-			fig+"\n  󱉟 Library                  l")
+			fig+"\n  󱉟 Library"+strings.Repeat(" ", 15)+"l")
 	}
 	return m.library.View()
 }
@@ -112,23 +119,30 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-
 		case "l":
 			if m.state == homeState {
 				m.state = librayState
 				return m, m.library.syncVisibleWidget()
 			}
+		case "ctrl+h", "esc":
+			if m.library.activeArea == int(contentFocus) {
+				m.library.activeArea = int(sideFocus)
+			}
 		}
+
 	case tea.WindowSizeMsg:
 		m.library.width = msg.Width
-		m.library.height = msg.Height
-		m.library.cols = 5
-		m.library.dynamicCardWidth = (m.library.width / m.library.cols) - 3
-		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.75) - 3
+		m.library.sideBarWidth = 40
+		m.library.height = msg.Height - 3
+		m.library.cols = 4
+		contentWidth := m.library.width - m.library.sideBarWidth - 6
+		contentHeight := m.library.height
+		m.library.dynamicCardWidth = (contentWidth / m.library.cols) - 2
+		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 3
 		if m.library.dynamicCardWidth < 10 {
 			m.library.cols = 2
-			m.library.dynamicCardWidth = (m.library.width / 2) - 3
-			m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth) * 0.75)
+			m.library.dynamicCardWidth = (contentWidth / 2) - 3
+			m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 3
 		}
 		m.library.cellPixelWidth, m.library.cellPixelHeight = getCellPixelSize(m.library.width, m.library.height)
 		if m.library.cellPixelWidth > 0 && m.library.cellPixelHeight > 0 {
@@ -136,7 +150,7 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			debugLog("CellPixels: unavailable, using fallback")
 		}
-		m.library.paginator.PerPage = m.library.cols * (m.library.height / (m.library.dynamicCardHeight + 2))
+		m.library.paginator.PerPage = m.library.cols * (contentHeight / (m.library.dynamicCardHeight))
 		m.library.paginator.SetTotalPages(len(m.library.books))
 	}
 
@@ -162,24 +176,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		debugLog("WindowSize: w=%d h=%d", msg.Width, msg.Height)
-	//	m.width, m.height = msg.Width, msg.Height
-	//	m.cols = 5
-	//	m.dynamicCardWidth = (m.width / m.cols) - 3
-	//	m.dynamicCardHeight = int(float64(m.dynamicCardWidth)*0.75) - 3
-	//	if m.dynamicCardWidth < 10 {
-	//		m.cols = 2
-	//		m.dynamicCardWidth = (m.width / 2) - 3
-	//		m.dynamicCardHeight = int(float64(m.dynamicCardWidth) * 0.75)
-	//	}
-	//	m.cellPixelWidth, m.cellPixelHeight = getCellPixelSize(m.width, m.height)
-	//	if m.cellPixelWidth > 0 && m.cellPixelHeight > 0 {
-	//		debugLog("CellPixels: w=%d h=%d", m.cellPixelWidth, m.cellPixelHeight)
-	//	} else {
-	//		debugLog("CellPixels: unavailable, using fallback")
-	//	}
-	//	m.paginator.PerPage = m.cols * (m.height / (m.dynamicCardHeight + 2))
-	//	m.paginator.SetTotalPages(len(m.books))
-	//	cmdSync = m.syncVisibleWidget()
 
 	case tea.KeyMsg:
 		debugLog("Key: %s", msg.String())
@@ -225,14 +221,14 @@ func (m Model) View() string {
 	start, end := m.paginator.GetSliceBounds(len(m.books))
 	booksCards := make([]string, 0)
 
-	for i, _ := range m.books[start:end] {
+	for i := range m.books[start:end] {
 		absoluteIndex := i + start
-		cover, ok := m.covers[absoluteIndex]
+		cover, _ := m.covers[absoluteIndex]
 
-		b.WriteString(string(strings.Count(cover, "\n")))
-		if !ok || cover == "" {
-			cover += strings.Repeat("\n", 10)
-		}
+		//b.WriteString(string(strings.Count(cover, "\n")))
+		//if !ok || cover == "" {
+		//	cover += strings.Repeat("\n", 10)
+		//}
 		style := list.
 			Width(m.dynamicCardWidth).
 			Height(m.dynamicCardHeight)
@@ -240,20 +236,24 @@ func (m Model) View() string {
 		if absoluteIndex == m.cursor {
 			style = style.BorderForeground(highlight)
 		}
-		//renderedBook := m.renderBookCard(book, absoluteIndex == m.cursor, cover)
 		booksCards = append(booksCards, style.Render(cover))
 	}
 
 	var rows []string
 	for i := 0; i < len(booksCards); i += m.cols {
 		endIdx := i + m.cols
+
 		if endIdx > len(booksCards) {
 			endIdx = len(booksCards)
 		}
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, booksCards[i:endIdx]...))
 	}
-
-	b.WriteString(lipgloss.JoinVertical(lipgloss.Left, rows...))
+	libraryBorderStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
+		BorderForeground(borders).Width(m.width - m.sideBarWidth - 4).Height(m.height).PaddingLeft(2)
+	book := lipgloss.JoinVertical(lipgloss.Top, rows...)
+	books := lipgloss.JoinHorizontal(lipgloss.Top, book)
+	library := libraryBorderStyle.Render(books)
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, m.SideBarView(), library))
 	b.WriteString("\n  " + m.paginator.View())
 	return b.String()
 }
@@ -266,7 +266,7 @@ func (m *Model) syncVisibleWidget() tea.Cmd {
 	curHeight := m.dynamicCardHeight
 	curCellPixelWidth := m.cellPixelWidth
 	curCellPixelHeight := m.cellPixelHeight
-	debugLog("syncVisibleWidget queued: start=%d end=%d books=%d", start, end, len(booksToLoad))
+
 	return func() tea.Msg {
 		debugLog("syncVisibleWidget start: start=%d end=%d books=%d", start, end, len(booksToLoad))
 		protocol := termimg.DetectProtocol()
@@ -280,7 +280,7 @@ func (m *Model) syncVisibleWidget() tea.Cmd {
 			if path == "" {
 				continue
 			}
-			targetPixelWidth := curWidth - 2
+			targetPixelWidth := curWidth
 			targetPixelHeight := curHeight
 			if curCellPixelWidth > 0 && curCellPixelHeight > 0 {
 				targetPixelWidth = curWidth * curCellPixelWidth
@@ -304,24 +304,22 @@ func (m *Model) syncVisibleWidget() tea.Cmd {
 			if protocol == termimg.Halfblocks {
 				img = img.Dither(true).DitherMode(termimg.DitherFloydSteinberg)
 			}
+
 			cover := termimg.NewImageWidget(img)
 			cover.SetSize(curWidth, curHeight).SetProtocol(protocol)
 			finalCover := ""
 			if cover != nil {
 				coverRendered, err := cover.Render()
-				coverRendered = lipgloss.NewStyle().Width(curWidth).Height(curHeight).Render(coverRendered)
-				style := list
-				style.Width(img.Bounds.Dx()).Height(img.Bounds.Dy())
 				if err != nil {
 					log.Printf("Err rendering cover: %v ", err)
 				}
+				coverRendered = strings.TrimLeft(coverRendered, "\n")
 				finalCover += coverRendered
 			} else {
 				finalCover += ""
 			}
 			localCovers[i+start] = finalCover
 		}
-		debugLog("syncVisibleWidget end: loaded=%d", len(localCovers))
 		return coversLoadedMsg(localCovers)
 	}
 }
@@ -350,4 +348,33 @@ func getCellPixelSize(cols, rows int) (int, int) {
 		return 0, 0
 	}
 	return cellW, cellH
+}
+
+func (m *Model) SideBarView() string {
+	var options string
+
+	rawOptionsList := []string{"Home", "Books", "To-Be Read"}
+	renderedOptionsList := make([]string, len(rawOptionsList))
+
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
+		BorderForeground(borders).Width(m.sideBarWidth).Height(m.height).PaddingTop(1)
+
+	inactiveStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(240)).
+		PaddingLeft(1).MarginBottom(1)
+	activeStyle := inactiveStyle.Copy().Foreground(lipgloss.Color("#7D56F4")).
+		PaddingLeft(0)
+
+	for i, word := range rawOptionsList {
+		if i == m.sideBarCursor {
+			text := "> " + utils.ToSansBold(word)
+			renderedOptionsList[i] = activeStyle.Render(text)
+		} else {
+			text := utils.ToSansBold(word)
+			renderedOptionsList[i] = inactiveStyle.Render(text)
+		}
+	}
+
+	items := lipgloss.JoinVertical(lipgloss.Left, renderedOptionsList...)
+	options = style.Render(items)
+	return options
 }
