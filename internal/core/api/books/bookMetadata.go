@@ -40,14 +40,21 @@ type MetaData struct {
 	Description string `xml:"http://purl.org/dc/elements/1.1/ description" json:"description"`
 	Genders     string `xml:"http://purl.org/dc/elements/1.1/ subject" json:"genders"`
 	Language    string `xml:"http://purl.org/dc/elements/1.1/ language" json:"ln"`
+	Metas       []Meta `xml:"meta" json:"-"`
+}
+
+type Meta struct {
+	Name    string `xml:"name,attr"`
+	Content string `xml:"content,attr"`
 }
 type Manifest struct {
 	Items []Item `xml:"item"`
 }
 
 type Item struct {
-	Id   string `xml:"id,attr"`
-	Href string `xml:"href,attr"`
+	Id         string `xml:"id,attr"`
+	Href       string `xml:"href,attr"`
+	Properties string `xml:"properties,attr"`
 }
 
 type Handler struct {
@@ -171,8 +178,15 @@ func extractMetadata(src string) (*Package, error) {
 				continue
 			}
 			baseDir := path.Dir(f.Name)
+			coverID := ""
+			for _, m := range BookData.Metadata.Metas {
+				if m.Name == "cover" && m.Content != "" {
+					coverID = m.Content
+					break
+				}
+			}
 			for _, m := range BookData.Manifest.Items {
-				if m.Id == "cover" { //Could be a good idea to check something more robust than cover
+				if (coverID != "" && m.Id == coverID) || strings.Contains(m.Properties, "cover-image") || m.Id == "cover" {
 					BookData.InternalCoverPath = path.Join(baseDir, m.Href)
 					BookData.BookFile = src
 					break

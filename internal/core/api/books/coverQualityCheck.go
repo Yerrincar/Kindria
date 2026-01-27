@@ -18,7 +18,7 @@ func (p *Package) GoodQualityCover() (finalPath string) {
 	r, err := zip.OpenReader(bookPath)
 	if err != nil {
 		log.Printf("Err opening .epub file: %v", err)
-		return err.Error()
+		return ""
 	}
 	defer r.Close()
 
@@ -26,12 +26,12 @@ func (p *Package) GoodQualityCover() (finalPath string) {
 		if strings.HasSuffix(z.Name, ".jpg") || strings.HasSuffix(z.Name, "jpeg") {
 			rc, err := z.Open()
 			if err != nil {
-				return err.Error()
+				return ""
 			}
 			imageCover, err := jpeg.DecodeConfig(rc)
 			rc.Close()
 			if err != nil {
-				return err.Error()
+				return ""
 			}
 			switch {
 			case imageCover.Width <= 400 || imageCover.Height <= 600:
@@ -50,12 +50,12 @@ func (p *Package) GoodQualityCover() (finalPath string) {
 		currentScore := 0
 		rc, err := c.Open()
 		if err != nil {
-			return err.Error()
+			return ""
 		}
 		coverDecoding, err := jpeg.Decode(rc)
 		rc.Close()
 		if err != nil {
-			return err.Error()
+			return ""
 		}
 		currentScore = coverDecoding.Bounds().Dx() * coverDecoding.Bounds().Dy()
 		if strings.Contains(c.Name, "cover") {

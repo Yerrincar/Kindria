@@ -13,6 +13,15 @@ import (
 )
 
 func (c *CoverManager) ProcessCover(p *Package) (string, error) {
+	if p.InternalCoverPath != "" {
+		coverEpubPath, err := p.extractCoverFromEpub(p.InternalCoverPath)
+		if err != nil {
+			return "", err
+		}
+		if coverEpubPath != "" {
+			return coverEpubPath, nil
+		}
+	}
 	initialPath := p.GoodQualityCover()
 	finalPath := ("./cache/covers/" + strings.ReplaceAll(p.Metadata.Title, " ", "_") + ".jpg")
 	_, err := os.Stat(finalPath)

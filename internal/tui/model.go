@@ -132,13 +132,13 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.library.width = msg.Width
-		m.library.sideBarWidth = 40
+		m.library.sideBarWidth = msg.Width / 7
 		m.library.height = msg.Height - 3
-		m.library.cols = 4
+		m.library.cols = 5
 		contentWidth := m.library.width - m.library.sideBarWidth - 6
 		contentHeight := m.library.height
 		m.library.dynamicCardWidth = (contentWidth / m.library.cols) - 2
-		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 3
+		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.75) - 2
 		if m.library.dynamicCardWidth < 10 {
 			m.library.cols = 2
 			m.library.dynamicCardWidth = (contentWidth / 2) - 3
