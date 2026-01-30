@@ -189,6 +189,13 @@ func extractMetadata(src string) (*Package, error) {
 				if (coverID != "" && m.Id == coverID) || strings.Contains(m.Properties, "cover-image") || m.Id == "cover" {
 					BookData.InternalCoverPath = path.Join(baseDir, m.Href)
 					BookData.BookFile = src
+					ext := strings.ToLower(path.Ext(BookData.InternalCoverPath))
+					if ext == ".xhtml" || ext == ".html" || ext == ".xml" {
+						imgRel, err := resolveCoverFromXHTML(r, BookData.InternalCoverPath)
+						if err == nil && imgRel != "" {
+							BookData.InternalCoverPath = path.Join(path.Dir(BookData.InternalCoverPath), imgRel)
+						}
+					}
 					break
 				}
 			}
@@ -269,4 +276,48 @@ func (h *Handler) SelectBookPath(bookFile string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+func resolveCoverFromXHTML(r *zip.ReadCloser, href string) (string, error) {
+	f, err := findZipFile(r, href)
+	if err != nil {
+		return "", err
+	}
+
+	rc, err := f.Open()
+	if err != nil {
+		return "", err
+	}
+	defer rc.Close()
+
+	dec := xml.NewDecoder(rc)
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(se.Name.Local, "img") {
+			for _, a := range se.Attr {
+				if strings.EqualFold(a.Name.Local, "src") && a.Value != "" {
+					return a.Value, nil
+				}
+			}
+		}
+	}
+}
+
+func findZipFile(r *zip.ReadCloser, name string) (*zip.File, error) {
+	for _, f := range r.File {
+		if f.Name == name {
+			return f, nil
+		}
+	}
+	return nil, os.ErrNotExist
 }

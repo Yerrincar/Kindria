@@ -132,13 +132,13 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.library.width = msg.Width
-		m.library.sideBarWidth = msg.Width / 7
+		m.library.sideBarWidth = msg.Width / 8
 		m.library.height = msg.Height - 3
-		m.library.cols = 5
+		m.library.cols = 6
 		contentWidth := m.library.width - m.library.sideBarWidth - 6
 		contentHeight := m.library.height
 		m.library.dynamicCardWidth = (contentWidth / m.library.cols) - 2
-		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.75) - 2
+		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 2
 		if m.library.dynamicCardWidth < 10 {
 			m.library.cols = 2
 			m.library.dynamicCardWidth = (contentWidth / 2) - 3
@@ -249,7 +249,8 @@ func (m Model) View() string {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, booksCards[i:endIdx]...))
 	}
 	libraryBorderStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
-		BorderForeground(borders).Width(m.width - m.sideBarWidth - 4).Height(m.height).PaddingLeft(2)
+		BorderForeground(borders).Width(m.width - m.sideBarWidth - 4).Height(m.height).PaddingLeft(2).
+		PaddingTop(1)
 	book := lipgloss.JoinVertical(lipgloss.Top, rows...)
 	books := lipgloss.JoinHorizontal(lipgloss.Top, book)
 	library := libraryBorderStyle.Render(books)
