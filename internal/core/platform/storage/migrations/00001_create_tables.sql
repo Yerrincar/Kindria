@@ -4,10 +4,11 @@ CREATE TABLE books (
     title TEXT NOT NULL,
     author TEXT NOT NULL,
     description TEXT NOT NULL,
-    genders TEXT NOT NULL DEFAULT '[]',
+    genres TEXT NOT NULL DEFAULT '[]',
     language TEXT NOT NULL,
     file_name TEXT NOT NULL UNIQUE,
-    bookPath TEXT NOT NULL
+    bookPath TEXT NOT NULL,
+    rating REAL
 );
 
 -- +goose Down

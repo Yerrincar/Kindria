@@ -7,6 +7,8 @@ package db
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 )
 
 const checkBookExists = `-- name: CheckBookExists :one
@@ -21,17 +23,18 @@ func (q *Queries) CheckBookExists(ctx context.Context, fileName string) (int64, 
 }
 
 const insertBooks = `-- name: InsertBooks :many
-INSERT INTO books (title, author, description, genders, language, file_name, bookPath) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, title, author, description, genders, language, file_name, bookpath
+INSERT INTO books (title, author, description, genres, language, file_name, bookPath, rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, title, author, description, genres, language, file_name, bookpath, rating
 `
 
 type InsertBooksParams struct {
-	Title       string `json:"title"`
-	Author      string `json:"author"`
-	Description string `json:"description"`
-	Genders     string `json:"genders"`
-	Language    string `json:"language"`
-	FileName    string `json:"file_name"`
-	Bookpath    string `json:"bookpath"`
+	Title       string          `json:"title"`
+	Author      string          `json:"author"`
+	Description string          `json:"description"`
+	Genres      json.RawMessage `json:"genres"`
+	Language    string          `json:"language"`
+	FileName    string          `json:"file_name"`
+	Bookpath    string          `json:"bookpath"`
+	Rating      sql.NullFloat64 `json:"rating"`
 }
 
 func (q *Queries) InsertBooks(ctx context.Context, arg InsertBooksParams) ([]Book, error) {
@@ -39,10 +42,11 @@ func (q *Queries) InsertBooks(ctx context.Context, arg InsertBooksParams) ([]Boo
 		arg.Title,
 		arg.Author,
 		arg.Description,
-		arg.Genders,
+		arg.Genres,
 		arg.Language,
 		arg.FileName,
 		arg.Bookpath,
+		arg.Rating,
 	)
 	if err != nil {
 		return nil, err
@@ -56,10 +60,11 @@ func (q *Queries) InsertBooks(ctx context.Context, arg InsertBooksParams) ([]Boo
 			&i.Title,
 			&i.Author,
 			&i.Description,
-			&i.Genders,
+			&i.Genres,
 			&i.Language,
 			&i.FileName,
 			&i.Bookpath,
+			&i.Rating,
 		); err != nil {
 			return nil, err
 		}
@@ -75,14 +80,16 @@ func (q *Queries) InsertBooks(ctx context.Context, arg InsertBooksParams) ([]Boo
 }
 
 const listBooks = `-- name: ListBooks :many
-SELECT title, author, file_name, bookPath FROM books ORDER BY title
+SELECT title, author, file_name, bookPath, rating, genres FROM books ORDER BY title
 `
 
 type ListBooksRow struct {
-	Title    string `json:"title"`
-	Author   string `json:"author"`
-	FileName string `json:"file_name"`
-	Bookpath string `json:"bookpath"`
+	Title    string          `json:"title"`
+	Author   string          `json:"author"`
+	FileName string          `json:"file_name"`
+	Bookpath string          `json:"bookpath"`
+	Rating   sql.NullFloat64 `json:"rating"`
+	Genres   json.RawMessage `json:"genres"`
 }
 
 func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
@@ -99,6 +106,8 @@ func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
 			&i.Author,
 			&i.FileName,
 			&i.Bookpath,
+			&i.Rating,
+			&i.Genres,
 		); err != nil {
 			return nil, err
 		}
@@ -114,7 +123,7 @@ func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
 }
 
 const selectAllBooks = `-- name: SelectAllBooks :many
-SELECT id, title, author, description, genders, language, file_name, bookpath FROM books ORDER BY title
+SELECT id, title, author, description, genres, language, file_name, bookpath, rating FROM books ORDER BY title
 `
 
 func (q *Queries) SelectAllBooks(ctx context.Context) ([]Book, error) {
@@ -131,10 +140,11 @@ func (q *Queries) SelectAllBooks(ctx context.Context) ([]Book, error) {
 			&i.Title,
 			&i.Author,
 			&i.Description,
-			&i.Genders,
+			&i.Genres,
 			&i.Language,
 			&i.FileName,
 			&i.Bookpath,
+			&i.Rating,
 		); err != nil {
 			return nil, err
 		}
@@ -185,4 +195,18 @@ func (q *Queries) SelectFileNames(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateRating = `-- name: UpdateRating :exec
+UPDATE books SET rating = ? WHERE title = ?
+`
+
+type UpdateRatingParams struct {
+	Rating sql.NullFloat64 `json:"rating"`
+	Title  string          `json:"title"`
+}
+
+func (q *Queries) UpdateRating(ctx context.Context, arg UpdateRatingParams) error {
+	_, err := q.db.ExecContext(ctx, updateRating, arg.Rating, arg.Title)
+	return err
 }

@@ -13,6 +13,18 @@ import (
 )
 
 func (c *CoverManager) ProcessCover(p *Package) (string, error) {
+	finalPath := ("./cache/covers/" + strings.ReplaceAll(p.Metadata.Title, " ", "_") + ".jpg")
+	initialPath := p.GoodQualityCover()
+	if initialPath != "" {
+		coverEpubPath, err := p.extractCoverFromEpub(initialPath)
+		if err != nil {
+			log.Printf("Eror trying to call extractCoverFromEpub func: %v", err)
+		}
+		if coverEpubPath != "" {
+			return coverEpubPath, nil
+		}
+	}
+
 	if p.InternalCoverPath != "" {
 		coverEpubPath, err := p.extractCoverFromEpub(p.InternalCoverPath)
 		if err != nil {
@@ -22,31 +34,23 @@ func (c *CoverManager) ProcessCover(p *Package) (string, error) {
 			return coverEpubPath, nil
 		}
 	}
-	initialPath := p.GoodQualityCover()
-	finalPath := ("./cache/covers/" + strings.ReplaceAll(p.Metadata.Title, " ", "_") + ".jpg")
+
 	_, err := os.Stat(finalPath)
 	if err == nil {
 		return finalPath, nil
 	}
-	if initialPath == "" {
-		tempCoverEpubPath, err := p.extractCoverFromEpub(p.InternalCoverPath)
-		if err != nil {
-			return "", err
-		}
+
+	if p.InternalCoverPath == "" {
 		c.coversQueue <- p
-		return tempCoverEpubPath, nil
-
+		return "", nil
 	}
 
-	coverEpubPath, err := p.extractCoverFromEpub(initialPath)
+	tempCoverEpubPath, err := p.extractCoverFromEpub(p.InternalCoverPath)
 	if err != nil {
-		log.Printf("Eror trying to call extractCoverFromEpub func: %v", err)
+		return "", err
 	}
-	if coverEpubPath != "" {
-		return coverEpubPath, nil
-	}
-
-	return "", nil
+	c.coversQueue <- p
+	return tempCoverEpubPath, nil
 }
 
 func (h *Handler) UpdateCacheCovers() error {

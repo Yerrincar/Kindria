@@ -28,18 +28,20 @@ func NewCoverManager() *CoverManager {
 }
 
 type Package struct {
-	Metadata          MetaData `xml:"metadata" json:"metadata"`
-	Manifest          Manifest `xml:"manifest" json:"-"`
+	Metadata          MetaData `xml:"metadata"`
+	Manifest          Manifest `xml:"manifest"`
+	Guide             Guide    `xml:"guide"`
 	InternalCoverPath string   `json:"cover_path"`
-	BookFile          string   `db:"file_name" json:"book_name"`
+	BookFile          string   `db:"file_name"`
+	Rating            float64  `db:"rating"`
 }
 
 type MetaData struct {
-	Author      string `xml:"http://purl.org/dc/elements/1.1/ creator" json:"author"`
-	Title       string `xml:"http://purl.org/dc/elements/1.1/ title" json:"title"`
-	Description string `xml:"http://purl.org/dc/elements/1.1/ description" json:"description"`
-	Genders     string `xml:"http://purl.org/dc/elements/1.1/ subject" json:"genders"`
-	Language    string `xml:"http://purl.org/dc/elements/1.1/ language" json:"ln"`
+	Author      string `xml:"http://purl.org/dc/elements/1.1/ creator"`
+	Title       string `xml:"http://purl.org/dc/elements/1.1/ title"`
+	Description string `xml:"http://purl.org/dc/elements/1.1/ description"`
+	Genres      string `xml:"http://purl.org/dc/elements/1.1/ subject"`
+	Language    string `xml:"http://purl.org/dc/elements/1.1/ language"`
 	Metas       []Meta `xml:"meta" json:"-"`
 }
 
@@ -57,6 +59,16 @@ type Item struct {
 	Properties string `xml:"properties,attr"`
 }
 
+type Guide struct {
+	References []Reference `xml:"reference"`
+}
+
+type Reference struct {
+	Type  string `xml:"type,attr"`
+	Href  string `xml:"href,attr"`
+	Title string `xml:"title,attr"`
+}
+
 type Handler struct {
 	Queries *db.Queries
 	DB      *sql.DB
@@ -70,26 +82,6 @@ type jsonWrapper struct {
 
 type OLDoc struct {
 	Cover_i int `json:"cover_i"`
-}
-
-func (h *Handler) ServeJson(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
-	switch r.Method {
-	case http.MethodGet:
-		structs, err := h.Queries.ListBooks(ctx)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(w).Encode(structs)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
 }
 
 func (h *Handler) InsertBooks() ([]db.Book, error) {
@@ -135,7 +127,7 @@ func (h *Handler) InsertBooks() ([]db.Book, error) {
 			Title:       bookData.Metadata.Title,
 			Author:      bookData.Metadata.Author,
 			Description: bookData.Metadata.Description,
-			Genders:     bookData.Metadata.Genders,
+			Genres:      json.RawMessage(bookData.Metadata.Genres),
 			Language:    bookData.Metadata.Language,
 			FileName:    bookData.BookFile,
 			Bookpath:    coverPath,
@@ -179,14 +171,24 @@ func extractMetadata(src string) (*Package, error) {
 			}
 			baseDir := path.Dir(f.Name)
 			coverID := ""
+			coverGuideHref := ""
 			for _, m := range BookData.Metadata.Metas {
 				if m.Name == "cover" && m.Content != "" {
 					coverID = m.Content
 					break
 				}
 			}
+			for _, ref := range BookData.Guide.References {
+				if ref.Type == "cover" && ref.Href != "" {
+					coverGuideHref = ref.Href
+					break
+				}
+			}
 			for _, m := range BookData.Manifest.Items {
-				if (coverID != "" && m.Id == coverID) || strings.Contains(m.Properties, "cover-image") || m.Id == "cover" {
+				if (coverGuideHref != "" && m.Href == coverGuideHref) ||
+					(coverID != "" && m.Id == coverID) ||
+					strings.Contains(m.Properties, "cover-image") ||
+					m.Id == "cover" {
 					BookData.InternalCoverPath = path.Join(baseDir, m.Href)
 					BookData.BookFile = src
 					ext := strings.ToLower(path.Ext(BookData.InternalCoverPath))
@@ -197,6 +199,17 @@ func extractMetadata(src string) (*Package, error) {
 						}
 					}
 					break
+				}
+			}
+			if BookData.InternalCoverPath == "" && coverGuideHref != "" {
+				BookData.InternalCoverPath = path.Join(baseDir, coverGuideHref)
+				BookData.BookFile = src
+				ext := strings.ToLower(path.Ext(BookData.InternalCoverPath))
+				if ext == ".xhtml" || ext == ".html" || ext == ".xml" {
+					imgRel, err := resolveCoverFromXHTML(r, BookData.InternalCoverPath)
+					if err == nil && imgRel != "" {
+						BookData.InternalCoverPath = path.Join(path.Dir(BookData.InternalCoverPath), imgRel)
+					}
 				}
 			}
 			break
@@ -260,10 +273,37 @@ func (h *Handler) SelectBooks() ([]*Package, error) {
 				Title:       row.Title,
 				Author:      row.Author,
 				Description: row.Description,
-				Genders:     row.Genders,
+				Genres:      string(row.Genres),
 				Language:    row.Language,
 			},
 			BookFile: row.FileName,
+		}
+		books = append(books, p)
+	}
+	return books, nil
+}
+
+func (h *Handler) SelectBookInfo() ([]*Package, error) {
+	books := make([]*Package, 0)
+	rows, err := h.Queries.ListBooks(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		var finalRating float64
+		if row.Rating.Valid == false {
+			finalRating = 0.0
+		} else {
+			finalRating = row.Rating.Float64
+		}
+		p := &Package{
+			Metadata: MetaData{
+				Title:  row.Title,
+				Author: row.Author,
+				Genres: string(row.Genres),
+			},
+			BookFile: row.FileName,
+			Rating:   finalRating,
 		}
 		books = append(books, p)
 	}

@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"log"
+	"path"
 	"strings"
 )
 
@@ -14,6 +15,20 @@ func (p *Package) GoodQualityCover() (finalPath string) {
 	uniqueColors := 5
 	winner := ""
 	bestScore := 0
+	ignoredNameTokens := []string{
+		"title",
+		"endpaper",
+		"endpapers",
+		"backad",
+		"adcard",
+		"abouttheauthor",
+		"newsletter",
+		"contents",
+		"toc",
+		"copyright",
+		"frontmatter",
+		"backmatter",
+	}
 	possibleCovers := make([]*zip.File, 0)
 	r, err := zip.OpenReader(bookPath)
 	if err != nil {
@@ -24,6 +39,17 @@ func (p *Package) GoodQualityCover() (finalPath string) {
 
 	for _, z := range r.File {
 		if strings.HasSuffix(z.Name, ".jpg") || strings.HasSuffix(z.Name, "jpeg") {
+			lowerName := strings.ToLower(z.Name)
+			skip := false
+			for _, token := range ignoredNameTokens {
+				if strings.Contains(lowerName, token) {
+					skip = true
+					break
+				}
+			}
+			if skip {
+				continue
+			}
 			rc, err := z.Open()
 			if err != nil {
 				return ""
@@ -58,11 +84,14 @@ func (p *Package) GoodQualityCover() (finalPath string) {
 			return ""
 		}
 		currentScore = coverDecoding.Bounds().Dx() * coverDecoding.Bounds().Dy()
+		if p.InternalCoverPath != "" && strings.EqualFold(path.Clean(c.Name), path.Clean(p.InternalCoverPath)) {
+			currentScore *= 4
+		}
 		if strings.Contains(c.Name, "cover") {
 			currentScore *= 2
 		}
 		if float64(coverDecoding.Bounds().Dx())/float64(coverDecoding.Bounds().Dy()) == dimensionCap {
-			currentScore *= 2
+			currentScore *= 3
 		}
 
 		colorMap := make(map[color.Color]int)

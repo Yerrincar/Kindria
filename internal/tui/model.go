@@ -54,8 +54,10 @@ type Model struct {
 	activeArea        int
 	selected          map[int]struct{}
 	width             int
+	contentWidth      int
 	height            int
 	sideBarWidth      int
+	lowBarHeight      int
 	dynamicCardWidth  int
 	dynamicCardHeight int
 	cellPixelWidth    int
@@ -133,15 +135,16 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.library.width = msg.Width
 		m.library.sideBarWidth = msg.Width / 8
-		m.library.height = msg.Height - 3
+		m.library.height = msg.Height - 5
 		m.library.cols = 6
-		contentWidth := m.library.width - m.library.sideBarWidth - 6
-		contentHeight := m.library.height
-		m.library.dynamicCardWidth = (contentWidth / m.library.cols) - 2
+		m.library.lowBarHeight = 4
+		m.library.contentWidth = m.library.width - m.library.sideBarWidth - 6
+		contentHeight := m.library.height - m.library.lowBarHeight
+		m.library.dynamicCardWidth = (m.library.contentWidth / m.library.cols) - 2
 		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 2
 		if m.library.dynamicCardWidth < 10 {
 			m.library.cols = 2
-			m.library.dynamicCardWidth = (contentWidth / 2) - 3
+			m.library.dynamicCardWidth = (m.library.contentWidth / 2) - 3
 			m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 3
 		}
 		m.library.cellPixelWidth, m.library.cellPixelHeight = getCellPixelSize(m.library.width, m.library.height)
@@ -249,12 +252,13 @@ func (m Model) View() string {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, booksCards[i:endIdx]...))
 	}
 	libraryBorderStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
-		BorderForeground(borders).Width(m.width - m.sideBarWidth - 4).Height(m.height).PaddingLeft(2).
+		BorderForeground(borders).Width(m.width - m.sideBarWidth - 4).Height(m.height - m.lowBarHeight).PaddingLeft(2).
 		PaddingTop(1)
 	book := lipgloss.JoinVertical(lipgloss.Top, rows...)
 	books := lipgloss.JoinHorizontal(lipgloss.Top, book)
 	library := libraryBorderStyle.Render(books)
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, m.SideBarView(), library))
+	contentSide := (lipgloss.JoinVertical(lipgloss.Bottom, library, m.lowBarView()))
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, m.SideBarView(), contentSide))
 	b.WriteString("\n  " + m.paginator.View())
 	return b.String()
 }
@@ -314,8 +318,8 @@ func (m *Model) syncVisibleWidget() tea.Cmd {
 				if err != nil {
 					log.Printf("Err rendering cover: %v ", err)
 				}
-				coverRendered = strings.TrimLeft(coverRendered, "\n")
 				finalCover += coverRendered
+
 			} else {
 				finalCover += ""
 			}
@@ -358,7 +362,7 @@ func (m *Model) SideBarView() string {
 	renderedOptionsList := make([]string, len(rawOptionsList))
 
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
-		BorderForeground(borders).Width(m.sideBarWidth).Height(m.height).PaddingTop(1)
+		BorderForeground(borders).Width(m.sideBarWidth).Height(m.height + 2)
 
 	inactiveStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(240)).
 		PaddingLeft(1).MarginBottom(1)
@@ -378,4 +382,22 @@ func (m *Model) SideBarView() string {
 	items := lipgloss.JoinVertical(lipgloss.Left, renderedOptionsList...)
 	options = style.Render(items)
 	return options
+}
+
+func (m *Model) lowBarView() string { //ADD BOOK INFO HERE
+	contentWidth := m.contentWidth + 2
+	Title := "Title: "
+	Genres := "Genres: "
+	info, _ := m.handler.SelectBookInfo()
+	for _, book := range info {
+		book = info[m.cursor]
+		Title += book.Metadata.Title
+		Genres += book.Metadata.Genres
+		break
+	}
+	finalString := Title + Genres
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
+		BorderForeground(borders).Foreground(lipgloss.Color("#7D56F4")).Width(contentWidth).Height(m.lowBarHeight).PaddingTop(1)
+
+	return style.Render(finalString)
 }

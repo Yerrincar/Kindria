@@ -34,7 +34,6 @@ func main() {
 	}
 	h := &metadata.Handler{Queries: db.New(database), DB: database, CM: metadata.NewCoverManager()}
 	log.Printf("DB Open")
-	//go h.UpdateCacheCovers()
 
 	log.Printf("Inserting books")
 	_, err = h.InsertBooks()
@@ -48,6 +47,7 @@ func main() {
 		fmt.Printf("Error inserting books:  %v", err)
 	}
 	log.Printf("Books selected")
+	go h.UpdateCacheCovers()
 
 	log.Printf("Initializing TUI")
 	p := tea.NewProgram(tui.InitialModel(books, h), tea.WithAltScreen())
