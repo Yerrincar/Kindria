@@ -384,20 +384,40 @@ func (m *Model) SideBarView() string {
 	return options
 }
 
-func (m *Model) lowBarView() string { //ADD BOOK INFO HERE
+func (m *Model) lowBarView() string {
 	contentWidth := m.contentWidth + 2
-	Title := "Title: "
-	Genres := "Genres: "
-	info, _ := m.handler.SelectBookInfo()
-	for _, book := range info {
-		book = info[m.cursor]
-		Title += book.Metadata.Title
-		Genres += book.Metadata.Genres
-		break
+	info, err := m.handler.SelectBookInfo()
+	if err != nil {
+		log.Print("No book selected")
 	}
-	finalString := Title + Genres
-	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
-		BorderForeground(borders).Foreground(lipgloss.Color("#7D56F4")).Width(contentWidth).Height(m.lowBarHeight).PaddingTop(1)
+	selectedBook := info[m.cursor]
+	titleLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Title:")
+	authorLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Author:")
+	genresLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Genres:")
+	ratingLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Rating:")
+
+	title := titleLabel + " " + selectedBook.Metadata.Title
+	author := authorLabel + " " + selectedBook.Metadata.Author
+	genres := strings.Join(selectedBook.Metadata.Genres, ", ")
+
+	innerWidth := contentWidth - 4
+	columnGap := 2
+	columnWidth := (innerWidth-columnGap)/3 + 1
+
+	leftCol := lipgloss.NewStyle().Width(columnWidth).Render(
+		title + "\n\n" + genresLabel + " " + genres,
+	)
+	rightCol := lipgloss.NewStyle().Width(columnWidth).Render(
+		author + "\n\n" + ratingLabel + " ",
+	)
+
+	finalString := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, strings.Repeat(" ", columnGap), rightCol)
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder(), true, true, true, true).
+		BorderForeground(borders).
+		Foreground(normal).
+		Width(contentWidth).
+		Height(m.lowBarHeight)
 
 	return style.Render(finalString)
 }

@@ -6,17 +6,16 @@ package db
 
 import (
 	"database/sql"
-	"encoding/json"
 )
 
 type Book struct {
-	ID          int64           `json:"id"`
-	Title       string          `json:"title"`
-	Author      string          `json:"author"`
-	Description string          `json:"description"`
-	Genres      json.RawMessage `json:"genres"`
-	Language    string          `json:"language"`
-	FileName    string          `json:"file_name"`
-	Bookpath    string          `json:"bookpath"`
-	Rating      sql.NullFloat64 `json:"rating"`
+	ID          int64
+	Title       string
+	Author      string
+	Description string
+	Genres      string
+	Language    string
+	FileName    string
+	Bookpath    string
+	Rating      sql.NullFloat64
 }

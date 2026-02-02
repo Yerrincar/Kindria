@@ -8,7 +8,6 @@ package db
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 )
 
 const checkBookExists = `-- name: CheckBookExists :one
@@ -27,14 +26,14 @@ INSERT INTO books (title, author, description, genres, language, file_name, book
 `
 
 type InsertBooksParams struct {
-	Title       string          `json:"title"`
-	Author      string          `json:"author"`
-	Description string          `json:"description"`
-	Genres      json.RawMessage `json:"genres"`
-	Language    string          `json:"language"`
-	FileName    string          `json:"file_name"`
-	Bookpath    string          `json:"bookpath"`
-	Rating      sql.NullFloat64 `json:"rating"`
+	Title       string
+	Author      string
+	Description string
+	Genres      string
+	Language    string
+	FileName    string
+	Bookpath    string
+	Rating      sql.NullFloat64
 }
 
 func (q *Queries) InsertBooks(ctx context.Context, arg InsertBooksParams) ([]Book, error) {
@@ -84,12 +83,12 @@ SELECT title, author, file_name, bookPath, rating, genres FROM books ORDER BY ti
 `
 
 type ListBooksRow struct {
-	Title    string          `json:"title"`
-	Author   string          `json:"author"`
-	FileName string          `json:"file_name"`
-	Bookpath string          `json:"bookpath"`
-	Rating   sql.NullFloat64 `json:"rating"`
-	Genres   json.RawMessage `json:"genres"`
+	Title    string
+	Author   string
+	FileName string
+	Bookpath string
+	Rating   sql.NullFloat64
+	Genres   string
 }
 
 func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
@@ -202,8 +201,8 @@ UPDATE books SET rating = ? WHERE title = ?
 `
 
 type UpdateRatingParams struct {
-	Rating sql.NullFloat64 `json:"rating"`
-	Title  string          `json:"title"`
+	Rating sql.NullFloat64
+	Title  string
 }
 
 func (q *Queries) UpdateRating(ctx context.Context, arg UpdateRatingParams) error {

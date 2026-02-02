@@ -37,12 +37,12 @@ type Package struct {
 }
 
 type MetaData struct {
-	Author      string `xml:"http://purl.org/dc/elements/1.1/ creator"`
-	Title       string `xml:"http://purl.org/dc/elements/1.1/ title"`
-	Description string `xml:"http://purl.org/dc/elements/1.1/ description"`
-	Genres      string `xml:"http://purl.org/dc/elements/1.1/ subject"`
-	Language    string `xml:"http://purl.org/dc/elements/1.1/ language"`
-	Metas       []Meta `xml:"meta" json:"-"`
+	Author      string   `xml:"http://purl.org/dc/elements/1.1/ creator"`
+	Title       string   `xml:"http://purl.org/dc/elements/1.1/ title"`
+	Description string   `xml:"http://purl.org/dc/elements/1.1/ description"`
+	Genres      []string `xml:"http://purl.org/dc/elements/1.1/ subject"`
+	Language    string   `xml:"http://purl.org/dc/elements/1.1/ language"`
+	Metas       []Meta   `xml:"meta" json:"-"`
 }
 
 type Meta struct {
@@ -127,7 +127,7 @@ func (h *Handler) InsertBooks() ([]db.Book, error) {
 			Title:       bookData.Metadata.Title,
 			Author:      bookData.Metadata.Author,
 			Description: bookData.Metadata.Description,
-			Genres:      json.RawMessage(bookData.Metadata.Genres),
+			Genres:      strings.Join(normalizeGenres(bookData.Metadata.Genres), ","),
 			Language:    bookData.Metadata.Language,
 			FileName:    bookData.BookFile,
 			Bookpath:    coverPath,
@@ -138,6 +138,28 @@ func (h *Handler) InsertBooks() ([]db.Book, error) {
 		insertedJson = append(insertedJson, booksJson...)
 	}
 	return insertedJson, nil
+}
+
+func normalizeGenres(genres []string) []string {
+	if len(genres) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(genres))
+	seen := make(map[string]struct{}, len(genres))
+	for _, g := range genres {
+		g = strings.TrimSpace(g)
+		g = strings.Trim(g, ",")
+		g = strings.TrimSpace(g)
+		if g == "" {
+			continue
+		}
+		if _, ok := seen[g]; ok {
+			continue
+		}
+		seen[g] = struct{}{}
+		out = append(out, g)
+	}
+	return out
 }
 
 func extractMetadata(src string) (*Package, error) {
@@ -268,12 +290,13 @@ func (h *Handler) SelectBooks() ([]*Package, error) {
 		return nil, err
 	}
 	for _, row := range rows {
+		genresSlice := normalizeGenres(strings.Split(row.Genres, ","))
 		p := &Package{
 			Metadata: MetaData{
 				Title:       row.Title,
 				Author:      row.Author,
 				Description: row.Description,
-				Genres:      string(row.Genres),
+				Genres:      genresSlice,
 				Language:    row.Language,
 			},
 			BookFile: row.FileName,
@@ -296,11 +319,12 @@ func (h *Handler) SelectBookInfo() ([]*Package, error) {
 		} else {
 			finalRating = row.Rating.Float64
 		}
+		genresSlice := normalizeGenres(strings.Split(row.Genres, ","))
 		p := &Package{
 			Metadata: MetaData{
 				Title:  row.Title,
 				Author: row.Author,
-				Genres: string(row.Genres),
+				Genres: genresSlice,
 			},
 			BookFile: row.FileName,
 			Rating:   finalRating,
