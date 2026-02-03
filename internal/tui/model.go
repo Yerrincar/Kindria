@@ -242,6 +242,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.sideBarCursor++
 				}
 			}
+		case "enter":
+			if m.activeArea == int(sideFocus) {
+				if m.MenuOptions[m.sideBarCursor] == "Home" {
+					m.activeArea = int(contentFocus) // Temp, later we will call the library view
+				}
+			}
 		case "right", "l":
 			m.paginator.NextPage()
 			cmdSync = m.syncVisibleWidget()
