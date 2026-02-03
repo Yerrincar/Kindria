@@ -66,6 +66,7 @@ type Model struct {
 	paginator         paginator.Model
 	covers            map[int]string
 	handler           metadata.Handler
+	MenuOptions       []string
 }
 
 type coversLoadedMsg map[int]string
@@ -89,11 +90,13 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 	p.InactiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "250", Dark: "238"}).Render("•")
 	debugLog("InitialModel: books=%d", len(b))
 	library := &Model{
-		books:     b,
-		selected:  make(map[int]struct{}),
-		paginator: p,
-		covers:    make(map[int]string),
-		handler:   *h,
+		books:       b,
+		selected:    make(map[int]struct{}),
+		paginator:   p,
+		covers:      make(map[int]string),
+		handler:     *h,
+		activeArea:  int(sideFocus),
+		MenuOptions: []string{"Home", "Books", "To-Be Read"},
 	}
 	return &MainModel{
 		state:   homeState,
@@ -129,6 +132,10 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+h", "esc":
 			if m.library.activeArea == int(contentFocus) {
 				m.library.activeArea = int(sideFocus)
+			}
+		case "ctrl+l":
+			if m.library.activeArea == int(sideFocus) {
+				m.library.activeArea = int(contentFocus)
 			}
 		}
 
@@ -186,13 +193,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
+			if m.activeArea == int(contentFocus) {
+				if m.cursor > 0 {
+					m.cursor--
+				}
 			}
-
+			if m.activeArea == int(sideFocus) {
+				if m.sideBarCursor > 0 {
+					m.sideBarCursor--
+				}
+			}
 		case "down", "j":
-			if m.cursor < len(m.books)-1 {
-				m.cursor++
+			if m.activeArea == int(contentFocus) {
+				if m.cursor < len(m.books)-1 {
+					m.cursor++
+				}
+			}
+			if m.activeArea == int(sideFocus) {
+				if m.sideBarCursor < len(m.MenuOptions)-1 {
+					m.sideBarCursor++
+				}
 			}
 		case "right", "l":
 			m.paginator.NextPage()
@@ -237,7 +257,9 @@ func (m Model) View() string {
 			Height(m.dynamicCardHeight)
 
 		if absoluteIndex == m.cursor {
-			style = style.BorderForeground(highlight)
+			if m.activeArea == int(contentFocus) {
+				style = style.BorderForeground(highlight)
+			}
 		}
 		booksCards = append(booksCards, style.Render(cover))
 	}
@@ -252,8 +274,13 @@ func (m Model) View() string {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, booksCards[i:endIdx]...))
 	}
 	libraryBorderStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
-		BorderForeground(borders).Width(m.width - m.sideBarWidth - 4).Height(m.height - m.lowBarHeight).PaddingLeft(2).
+		BorderForeground(subtle).
+		Width(m.width - m.sideBarWidth - 4).Height(m.height - m.lowBarHeight).PaddingLeft(2).
 		PaddingTop(1)
+	if m.activeArea == int(contentFocus) {
+		libraryBorderStyle = libraryBorderStyle.BorderForeground(borders)
+	}
+
 	book := lipgloss.JoinVertical(lipgloss.Top, rows...)
 	books := lipgloss.JoinHorizontal(lipgloss.Top, book)
 	library := libraryBorderStyle.Render(books)
@@ -358,18 +385,21 @@ func getCellPixelSize(cols, rows int) (int, int) {
 func (m *Model) SideBarView() string {
 	var options string
 
-	rawOptionsList := []string{"Home", "Books", "To-Be Read"}
-	renderedOptionsList := make([]string, len(rawOptionsList))
+	renderedOptionsList := make([]string, len(m.MenuOptions))
 
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
-		BorderForeground(borders).Width(m.sideBarWidth).Height(m.height + 2)
+		BorderForeground(subtle).Width(m.sideBarWidth).Height(m.height + 2)
 
 	inactiveStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(240)).
 		PaddingLeft(1).MarginBottom(1)
 	activeStyle := inactiveStyle.Copy().Foreground(lipgloss.Color("#7D56F4")).
 		PaddingLeft(0)
 
-	for i, word := range rawOptionsList {
+	if m.activeArea == int(sideFocus) {
+		style = style.BorderForeground(borders)
+	}
+
+	for i, word := range m.MenuOptions {
 		if i == m.sideBarCursor {
 			text := "> " + utils.ToSansBold(word)
 			renderedOptionsList[i] = activeStyle.Render(text)
@@ -414,10 +444,14 @@ func (m *Model) lowBarView() string {
 	finalString := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, strings.Repeat(" ", columnGap), rightCol)
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder(), true, true, true, true).
-		BorderForeground(borders).
+		BorderForeground(subtle).
 		Foreground(normal).
 		Width(contentWidth).
 		Height(m.lowBarHeight)
+
+	if m.activeArea == int(contentFocus) {
+		style = style.BorderForeground(borders)
+	}
 
 	return style.Render(finalString)
 }
