@@ -5,6 +5,7 @@ import (
 	"Kindria/internal/utils"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"image/color"
@@ -132,10 +133,36 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+h", "esc":
 			if m.library.activeArea == int(contentFocus) {
 				m.library.activeArea = int(sideFocus)
+				debugLog("Focus -> side | cursor=%d sideCursor=%d page=%d sideBarW=%d contentW=%d cardW=%d cardH=%d cols=%d",
+					m.library.cursor,
+					m.library.sideBarCursor,
+					m.library.paginator.Page,
+					m.library.sideBarWidth,
+					m.library.contentWidth,
+					m.library.dynamicCardWidth,
+					m.library.dynamicCardHeight,
+					m.library.cols,
+				)
+				side := m.library.SideBarView()
+				total := m.library.View()
+				debugLog("Render widths | side=%d total=%d", lipgloss.Width(side), lipgloss.Width(total))
 			}
 		case "ctrl+l":
 			if m.library.activeArea == int(sideFocus) {
 				m.library.activeArea = int(contentFocus)
+				debugLog("Focus -> content | cursor=%d sideCursor=%d page=%d sideBarW=%d contentW=%d cardW=%d cardH=%d cols=%d",
+					m.library.cursor,
+					m.library.sideBarCursor,
+					m.library.paginator.Page,
+					m.library.sideBarWidth,
+					m.library.contentWidth,
+					m.library.dynamicCardWidth,
+					m.library.dynamicCardHeight,
+					m.library.cols,
+				)
+				side := m.library.SideBarView()
+				total := m.library.View()
+				debugLog("Render widths | side=%d total=%d", lipgloss.Width(side), lipgloss.Width(total))
 			}
 		}
 
@@ -182,13 +209,14 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmdSync tea.Cmd
 	var cmdPaginator tea.Cmd
+	var cmds []tea.Cmd
+
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
-		debugLog("WindowSize: w=%d h=%d", msg.Width, msg.Height)
+		cmds = append(cmds, tea.ClearScreen)
 
 	case tea.KeyMsg:
-		debugLog("Key: %s", msg.String())
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
@@ -217,20 +245,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "right", "l":
 			m.paginator.NextPage()
 			cmdSync = m.syncVisibleWidget()
+			cmds = append(cmds, tea.ClearScreen)
 		case "left", "h":
 			m.paginator.PrevPage()
 			cmdSync = m.syncVisibleWidget()
+			cmds = append(cmds, tea.ClearScreen)
 		}
 
 	case coversLoadedMsg:
-		debugLog("coversLoadedMsg: count=%d", len(msg))
 		m.covers = msg
 		return m, nil
 	}
 
 	m.paginator, cmdPaginator = m.paginator.Update(msg)
+	cmds = append(cmds, cmdPaginator, cmdSync)
 
-	return m, tea.Batch(cmdPaginator, cmdSync)
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) View() string {
@@ -239,10 +269,17 @@ func (m Model) View() string {
 		return "\n  Initializing Kindria..."
 	}
 	var b strings.Builder
-	b.WriteString("\n Kindria, your TUI e-book library\n")
+	header := "\n Kindria, your TUI e-book library\n"
+	b.WriteString(header)
 
 	start, end := m.paginator.GetSliceBounds(len(m.books))
 	booksCards := make([]string, 0)
+	type coverRender struct {
+		row  int
+		col  int
+		data string
+	}
+	coverRenders := make([]coverRender, 0)
 
 	for i := range m.books[start:end] {
 		absoluteIndex := i + start
@@ -261,7 +298,16 @@ func (m Model) View() string {
 				style = style.BorderForeground(highlight)
 			}
 		}
-		booksCards = append(booksCards, style.Render(cover))
+		booksCards = append(booksCards, style.Render(""))
+		if cover != "" {
+			rowIdx := i / m.cols
+			colIdx := i % m.cols
+			coverRenders = append(coverRenders, coverRender{
+				row:  rowIdx,
+				col:  colIdx,
+				data: cover,
+			})
+		}
 	}
 
 	var rows []string
@@ -287,7 +333,40 @@ func (m Model) View() string {
 	contentSide := (lipgloss.JoinVertical(lipgloss.Bottom, library, m.lowBarView()))
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, m.SideBarView(), contentSide))
 	b.WriteString("\n  " + m.paginator.View())
-	return b.String()
+	rendered := b.String()
+
+	if len(coverRenders) == 0 {
+		return rendered
+	}
+
+	sidebar := m.SideBarView()
+	sideWidth := lipgloss.Width(sidebar)
+	headerHeight := lipgloss.Height(header)
+	cardWidth := m.dynamicCardWidth
+	cardHeight := m.dynamicCardHeight
+	if len(booksCards) > 0 {
+		cardWidth = lipgloss.Width(booksCards[0])
+		cardHeight = lipgloss.Height(booksCards[0])
+	}
+	contentStartRow := headerHeight + 1
+	gridStartRow := contentStartRow + 2
+	gridStartCol := sideWidth + 1 + 3
+	coverRowOffset := -2
+	coverColOffset := 1
+
+	var overlay strings.Builder
+	for _, c := range coverRenders {
+		row := gridStartRow + (c.row * cardHeight) + coverRowOffset
+		col := gridStartCol + (c.col * cardWidth) + coverColOffset
+		overlay.WriteString("\x1b[")
+		overlay.WriteString(strconv.Itoa(row))
+		overlay.WriteString(";")
+		overlay.WriteString(strconv.Itoa(col))
+		overlay.WriteString("H")
+		overlay.WriteString(c.data)
+	}
+
+	return rendered + overlay.String()
 }
 
 func (m *Model) syncVisibleWidget() tea.Cmd {
@@ -390,21 +469,30 @@ func (m *Model) SideBarView() string {
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
 		BorderForeground(subtle).Width(m.sideBarWidth).Height(m.height + 2)
 
-	inactiveStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(240)).
-		PaddingLeft(1).MarginBottom(1)
-	activeStyle := inactiveStyle.Copy().Foreground(lipgloss.Color("#7D56F4")).
-		PaddingLeft(0)
+	itemWidth := m.sideBarWidth - 2
+	if itemWidth < 0 {
+		itemWidth = 0
+	}
+	inactiveStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(240)).
+		Width(itemWidth).
+		PaddingLeft(1).
+		MarginBottom(1)
+	activeStyle := inactiveStyle.Copy().Foreground(lipgloss.Color("#7D56F4"))
 
 	if m.activeArea == int(sideFocus) {
 		style = style.BorderForeground(borders)
 	}
 
 	for i, word := range m.MenuOptions {
+		prefix := "  "
 		if i == m.sideBarCursor {
-			text := "> " + utils.ToSansBold(word)
+			prefix = "> "
+		}
+		text := prefix + utils.ToSansBold(word)
+		if i == m.sideBarCursor {
 			renderedOptionsList[i] = activeStyle.Render(text)
 		} else {
-			text := utils.ToSansBold(word)
 			renderedOptionsList[i] = inactiveStyle.Render(text)
 		}
 	}

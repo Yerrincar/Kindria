@@ -17,6 +17,11 @@ import (
 )
 
 func main() {
+	logFile, err := os.OpenFile("kindria.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		log.SetOutput(logFile)
+		defer logFile.Close()
+	}
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	go func() {
 		sigCh := make(chan os.Signal, 1)
