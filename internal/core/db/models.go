@@ -18,4 +18,5 @@ type Book struct {
 	FileName    string
 	Bookpath    string
 	Rating      sql.NullFloat64
+	Status      string
 }

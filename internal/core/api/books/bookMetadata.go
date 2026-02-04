@@ -34,6 +34,7 @@ type Package struct {
 	InternalCoverPath string   `json:"cover_path"`
 	BookFile          string   `db:"file_name"`
 	Rating            float64  `db:"rating"`
+	Status            string   `db:"status"`
 }
 
 type MetaData struct {
@@ -300,6 +301,7 @@ func (h *Handler) SelectBooks() ([]*Package, error) {
 				Language:    row.Language,
 			},
 			BookFile: row.FileName,
+			Status:   row.Status,
 		}
 		books = append(books, p)
 	}
@@ -328,6 +330,7 @@ func (h *Handler) SelectBookInfo() ([]*Package, error) {
 			},
 			BookFile: row.FileName,
 			Rating:   finalRating,
+			Status:   row.Status,
 		}
 		books = append(books, p)
 	}
@@ -340,6 +343,14 @@ func (h *Handler) SelectBookPath(bookFile string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+func (h *Handler) UpdateBookStatus(status, fileName string) error {
+	err := h.Queries.UpdateStatus(context.Background(), db.UpdateStatusParams{Status: status, FileName: fileName})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func resolveCoverFromXHTML(r *zip.ReadCloser, href string) (string, error) {

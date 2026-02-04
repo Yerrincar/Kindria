@@ -1,11 +1,14 @@
 -- name: ListBooks :many
-SELECT title, author, file_name, bookPath, rating, genres FROM books ORDER BY title;
+SELECT title, author, file_name, bookPath, rating, genres, status FROM books ORDER BY title;
 
 -- name: InsertBooks :many
 INSERT INTO books (title, author, description, genres, language, file_name, bookPath, rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;
 
 -- name: UpdateRating :exec
-UPDATE books SET rating = ? WHERE title = ?;
+UPDATE books SET rating = ? WHERE file_name = ?;
+
+-- name: UpdateStatus :exec
+UPDATE books SET status = ? WHERE file_name = ?;
 
 -- name: SelectFileNames :many
 SELECT file_name FROM books;

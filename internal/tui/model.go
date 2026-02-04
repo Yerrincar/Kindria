@@ -49,25 +49,28 @@ type MainModel struct {
 }
 
 type Model struct {
-	books             []*metadata.Package
-	cursor            int
-	sideBarCursor     int
-	activeArea        int
-	selected          map[int]struct{}
-	width             int
-	contentWidth      int
-	height            int
-	sideBarWidth      int
-	lowBarHeight      int
-	dynamicCardWidth  int
-	dynamicCardHeight int
-	cellPixelWidth    int
-	cellPixelHeight   int
-	cols              int
-	paginator         paginator.Model
-	covers            map[int]string
-	handler           metadata.Handler
-	MenuOptions       []string
+	books                []*metadata.Package
+	cursor               int
+	sideBarCursor        int
+	activeArea           int
+	selected             map[int]struct{}
+	width                int
+	contentWidth         int
+	height               int
+	sideBarWidth         int
+	lowBarHeight         int
+	dynamicCardWidth     int
+	dynamicCardHeight    int
+	cellPixelWidth       int
+	cellPixelHeight      int
+	cols                 int
+	paginator            paginator.Model
+	covers               map[int]string
+	handler              metadata.Handler
+	MenuOptions          []string
+	numberOfBooksPerPage int
+	start                int
+	end                  int
 }
 
 type coversLoadedMsg map[int]string
@@ -125,7 +128,7 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "l":
+		case "l", "L":
 			if m.state == homeState {
 				m.state = librayState
 				return m, m.library.syncVisibleWidget()
@@ -223,6 +226,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.activeArea == int(contentFocus) {
 				if m.cursor > 0 {
+					if m.cursor == m.start {
+						m.paginator.PrevPage()
+						cmdSync = m.syncVisibleWidget()
+						cmds = append(cmds, tea.ClearScreen)
+					}
 					m.cursor--
 				}
 			}
@@ -234,6 +242,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.activeArea == int(contentFocus) {
 				if m.cursor < len(m.books)-1 {
+					if m.cursor == m.end-1 {
+						m.paginator.NextPage()
+						cmdSync = m.syncVisibleWidget()
+						cmds = append(cmds, tea.ClearScreen)
+					}
 					m.cursor++
 				}
 			}
@@ -256,6 +269,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paginator.PrevPage()
 			cmdSync = m.syncVisibleWidget()
 			cmds = append(cmds, tea.ClearScreen)
+		case "r", "R":
+			err := m.handler.UpdateBookStatus("Read", m.books[m.cursor].BookFile)
+			if err != nil {
+				log.Printf("Error trying to update status: %v", err)
+			}
+			m.books[m.cursor].Status = "Read"
+		case "u", "U":
+			err := m.handler.UpdateBookStatus("Unread", m.books[m.cursor].BookFile)
+			if err != nil {
+				log.Printf("Error trying to update status: %v", err)
+			}
+			m.books[m.cursor].Status = "Unread"
+		case "t", "T":
+			err := m.handler.UpdateBookStatus("To Be Read", m.books[m.cursor].BookFile)
+			if err != nil {
+				log.Printf("Error trying to update status: %v", err)
+			}
+			m.books[m.cursor].Status = "To Be Read"
 		}
 
 	case coversLoadedMsg:
@@ -278,7 +309,7 @@ func (m Model) View() string {
 	header := "\n Kindria, your TUI e-book library\n"
 	b.WriteString(header)
 
-	start, end := m.paginator.GetSliceBounds(len(m.books))
+	m.start, m.end = m.paginator.GetSliceBounds(len(m.books))
 	booksCards := make([]string, 0)
 	type coverRender struct {
 		row  int
@@ -287,8 +318,8 @@ func (m Model) View() string {
 	}
 	coverRenders := make([]coverRender, 0)
 
-	for i := range m.books[start:end] {
-		absoluteIndex := i + start
+	for i := range m.books[m.start:m.end] {
+		absoluteIndex := i + m.start
 		cover, _ := m.covers[absoluteIndex]
 
 		//b.WriteString(string(strings.Count(cover, "\n")))
@@ -376,16 +407,16 @@ func (m Model) View() string {
 }
 
 func (m *Model) syncVisibleWidget() tea.Cmd {
-	start, end := m.paginator.GetSliceBounds(len(m.books))
+	m.start, m.end = m.paginator.GetSliceBounds(len(m.books))
 	localCovers := make(map[int]string)
-	booksToLoad := m.books[start:end]
+	booksToLoad := m.books[m.start:m.end]
 	curWidth := m.dynamicCardWidth
 	curHeight := m.dynamicCardHeight
 	curCellPixelWidth := m.cellPixelWidth
 	curCellPixelHeight := m.cellPixelHeight
 
 	return func() tea.Msg {
-		debugLog("syncVisibleWidget start: start=%d end=%d books=%d", start, end, len(booksToLoad))
+		debugLog("syncVisibleWidget start: start=%d end=%d books=%d", m.start, m.end, len(booksToLoad))
 		protocol := termimg.DetectProtocol()
 		features := termimg.QueryTerminalFeatures()
 		for i, book := range booksToLoad {
@@ -435,7 +466,7 @@ func (m *Model) syncVisibleWidget() tea.Cmd {
 			} else {
 				finalCover += ""
 			}
-			localCovers[i+start] = finalCover
+			localCovers[i+m.start] = finalCover
 		}
 		return coversLoadedMsg(localCovers)
 	}
@@ -484,7 +515,7 @@ func (m *Model) SideBarView() string {
 		Width(itemWidth).
 		PaddingLeft(1).
 		MarginBottom(1)
-	activeStyle := inactiveStyle.Copy().Foreground(lipgloss.Color("#7D56F4"))
+	activeStyle := inactiveStyle.Foreground(lipgloss.Color("#7D56F4"))
 
 	if m.activeArea == int(sideFocus) {
 		style = style.BorderForeground(borders)
@@ -519,10 +550,12 @@ func (m *Model) lowBarView() string {
 	authorLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Author:")
 	genresLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Genres:")
 	ratingLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Rating:")
+	statusLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Status:")
 
 	title := titleLabel + " " + selectedBook.Metadata.Title
 	author := authorLabel + " " + selectedBook.Metadata.Author
 	genres := strings.Join(selectedBook.Metadata.Genres, ", ")
+	status := statusLabel + " " + selectedBook.Status
 
 	innerWidth := contentWidth - 4
 	columnGap := 2
@@ -531,11 +564,15 @@ func (m *Model) lowBarView() string {
 	leftCol := lipgloss.NewStyle().Width(columnWidth).Render(
 		title + "\n\n" + genresLabel + " " + genres,
 	)
-	rightCol := lipgloss.NewStyle().Width(columnWidth).Render(
-		author + "\n\n" + ratingLabel + " ",
+	medCol := lipgloss.NewStyle().Width(columnWidth).Render(
+		author + "\n\n" + status + " ",
 	)
 
-	finalString := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, strings.Repeat(" ", columnGap), rightCol)
+	rightCol := lipgloss.NewStyle().Width(columnWidth).Render(
+		ratingLabel + " ",
+	)
+
+	finalString := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, strings.Repeat(" ", columnGap), medCol, strings.Repeat(" ", columnGap-1), rightCol)
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder(), true, true, true, true).
 		BorderForeground(subtle).

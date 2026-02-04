@@ -22,7 +22,7 @@ func (q *Queries) CheckBookExists(ctx context.Context, fileName string) (int64, 
 }
 
 const insertBooks = `-- name: InsertBooks :many
-INSERT INTO books (title, author, description, genres, language, file_name, bookPath, rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, title, author, description, genres, language, file_name, bookpath, rating
+INSERT INTO books (title, author, description, genres, language, file_name, bookPath, rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, title, author, description, genres, language, file_name, bookpath, rating, status
 `
 
 type InsertBooksParams struct {
@@ -64,6 +64,7 @@ func (q *Queries) InsertBooks(ctx context.Context, arg InsertBooksParams) ([]Boo
 			&i.FileName,
 			&i.Bookpath,
 			&i.Rating,
+			&i.Status,
 		); err != nil {
 			return nil, err
 		}
@@ -79,7 +80,7 @@ func (q *Queries) InsertBooks(ctx context.Context, arg InsertBooksParams) ([]Boo
 }
 
 const listBooks = `-- name: ListBooks :many
-SELECT title, author, file_name, bookPath, rating, genres FROM books ORDER BY title
+SELECT title, author, file_name, bookPath, rating, genres, status FROM books ORDER BY title
 `
 
 type ListBooksRow struct {
@@ -89,6 +90,7 @@ type ListBooksRow struct {
 	Bookpath string
 	Rating   sql.NullFloat64
 	Genres   string
+	Status   string
 }
 
 func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
@@ -107,6 +109,7 @@ func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
 			&i.Bookpath,
 			&i.Rating,
 			&i.Genres,
+			&i.Status,
 		); err != nil {
 			return nil, err
 		}
@@ -122,7 +125,7 @@ func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
 }
 
 const selectAllBooks = `-- name: SelectAllBooks :many
-SELECT id, title, author, description, genres, language, file_name, bookpath, rating FROM books ORDER BY title
+SELECT id, title, author, description, genres, language, file_name, bookpath, rating, status FROM books ORDER BY title
 `
 
 func (q *Queries) SelectAllBooks(ctx context.Context) ([]Book, error) {
@@ -144,6 +147,7 @@ func (q *Queries) SelectAllBooks(ctx context.Context) ([]Book, error) {
 			&i.FileName,
 			&i.Bookpath,
 			&i.Rating,
+			&i.Status,
 		); err != nil {
 			return nil, err
 		}
@@ -197,15 +201,29 @@ func (q *Queries) SelectFileNames(ctx context.Context) ([]string, error) {
 }
 
 const updateRating = `-- name: UpdateRating :exec
-UPDATE books SET rating = ? WHERE title = ?
+UPDATE books SET rating = ? WHERE file_name = ?
 `
 
 type UpdateRatingParams struct {
-	Rating sql.NullFloat64
-	Title  string
+	Rating   sql.NullFloat64
+	FileName string
 }
 
 func (q *Queries) UpdateRating(ctx context.Context, arg UpdateRatingParams) error {
-	_, err := q.db.ExecContext(ctx, updateRating, arg.Rating, arg.Title)
+	_, err := q.db.ExecContext(ctx, updateRating, arg.Rating, arg.FileName)
+	return err
+}
+
+const updateStatus = `-- name: UpdateStatus :exec
+UPDATE books SET status = ? WHERE file_name = ?
+`
+
+type UpdateStatusParams struct {
+	Status   string
+	FileName string
+}
+
+func (q *Queries) UpdateStatus(ctx context.Context, arg UpdateStatusParams) error {
+	_, err := q.db.ExecContext(ctx, updateStatus, arg.Status, arg.FileName)
 	return err
 }
