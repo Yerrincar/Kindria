@@ -270,10 +270,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "right", "l":
 			m.paginator.NextPage()
 			cmdSync = m.syncVisibleWidget()
+			m.cursor += m.paginator.PerPage - m.cursor
 			cmds = append(cmds, tea.ClearScreen)
 		case "left", "h":
 			m.paginator.PrevPage()
 			cmdSync = m.syncVisibleWidget()
+			m.cursor -= m.cursor
 			cmds = append(cmds, tea.ClearScreen)
 		case "r", "R":
 			err := m.handler.UpdateBookStatus("Read", m.books[m.cursor].BookFile)
