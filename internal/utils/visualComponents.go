@@ -1,6 +1,11 @@
 package utils
 
-import "strings"
+import (
+	"math"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 func Fig() string {
 	lines := []string{
@@ -58,4 +63,40 @@ func ToSansBold(text string) string {
 		}
 	}
 	return string(result)
+}
+
+func GetStarRating(val float64) string {
+	const maxStars = 5
+	rounded := math.Round(val*4) / 4
+	if rounded < 0 {
+		rounded = 0
+	}
+	if rounded > maxStars {
+		rounded = maxStars
+	}
+
+	starStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFD700")).
+		Bold(true)
+
+	var stars strings.Builder
+	fullStars := int(math.Floor(rounded))
+	fraction := rounded - float64(fullStars)
+	partial := ""
+
+	switch fraction {
+	case 0.25:
+		partial = "¼"
+	case 0.5:
+		partial = "½"
+	case 0.75:
+		partial = "¾"
+	}
+
+	stars.WriteString(strings.Repeat("⭐", fullStars))
+	if partial != "" {
+		stars.WriteString(partial)
+	}
+
+	return starStyle.Render(stars.String())
 }

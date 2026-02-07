@@ -353,6 +353,17 @@ func (h *Handler) UpdateBookStatus(status, fileName string) error {
 	return nil
 }
 
+func (h *Handler) UpdateBookRating(rating float64, fileName string) error {
+	err := h.Queries.UpdateRating(context.Background(), db.UpdateRatingParams{
+		Rating:   sql.NullFloat64{Float64: rating, Valid: true},
+		FileName: fileName,
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func resolveCoverFromXHTML(r *zip.ReadCloser, href string) (string, error) {
 	f, err := findZipFile(r, href)
 	if err != nil {
