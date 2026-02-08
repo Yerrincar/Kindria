@@ -45,6 +45,7 @@ type MainModel struct {
 
 type Model struct {
 	books             []*metadata.Package
+	allBooks          []*metadata.Package
 	cursor            int
 	sideBarCursor     int
 	activeArea        int
@@ -102,6 +103,7 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 		MenuOptions:     []string{"Home", "Books", "To-Be Read"},
 		showRatingInput: false,
 		ratingInput:     t,
+		allBooks:        b,
 	}
 	return &MainModel{
 		state:   homeState,
@@ -119,6 +121,7 @@ func (m *MainModel) View() string {
 		return lipgloss.Place(m.library.width, m.library.height, lipgloss.Center, lipgloss.Center,
 			fig+"\n  󱉟 Library"+strings.Repeat(" ", 15)+"l")
 	}
+
 	return m.library.View()
 }
 
@@ -131,8 +134,18 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "l", "L":
 			if m.state == homeState {
 				m.state = librayState
-				return m, m.library.syncVisibleWidget()
+				m.library.sideBarCursor = 1
+				m.library.activeArea = int(contentFocus)
+				return m, m.library.SetView("Books")
 			}
+		case "t", "T":
+			if m.state == homeState {
+				m.state = librayState
+				m.library.sideBarCursor = 2
+				m.library.activeArea = int(contentFocus)
+				return m, m.library.SetView("To-Be Read")
+			}
+
 		case "ctrl+h", "esc":
 			if m.library.activeArea == int(contentFocus) {
 				m.library.activeArea = int(sideFocus)
@@ -140,6 +153,13 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+l":
 			if m.library.activeArea == int(sideFocus) {
 				m.library.activeArea = int(contentFocus)
+			}
+		case "enter":
+			if m.state == librayState {
+				if m.library.MenuOptions[m.library.sideBarCursor] == "Home" {
+					m.state = homeState
+					return m, tea.ClearScreen
+				}
 			}
 		}
 
@@ -263,20 +283,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			if m.activeArea == int(sideFocus) {
-				if m.MenuOptions[m.sideBarCursor] == "Home" {
+				selectedOption := m.MenuOptions[m.sideBarCursor]
+				if selectedOption == "Books" || selectedOption == "To-Be Read" {
 					m.activeArea = int(contentFocus)
+					return m, m.SetView(selectedOption)
 				}
 			}
 		case "right", "l":
-			m.paginator.NextPage()
-			cmdSync = m.syncVisibleWidget()
-			m.cursor += m.paginator.PerPage - m.cursor
-			cmds = append(cmds, tea.ClearScreen)
+			if !m.paginator.OnLastPage() {
+				m.paginator.NextPage()
+				cmdSync = m.syncVisibleWidget()
+				m.cursor += m.paginator.PerPage - m.cursor
+				cmds = append(cmds, tea.ClearScreen)
+			}
 		case "left", "h":
-			m.paginator.PrevPage()
-			cmdSync = m.syncVisibleWidget()
-			m.cursor -= m.cursor
-			cmds = append(cmds, tea.ClearScreen)
+			if !m.paginator.OnFirstPage() {
+				m.paginator.PrevPage()
+				cmdSync = m.syncVisibleWidget()
+				m.cursor -= m.cursor
+				cmds = append(cmds, tea.ClearScreen)
+			}
 		case "r", "R":
 			err := m.handler.UpdateBookStatus("Read", m.books[m.cursor].BookFile)
 			if err != nil {
@@ -601,4 +627,25 @@ func (m *Model) lowBarView() string {
 	}
 
 	return style.Render(finalString)
+}
+
+func (m *Model) SetView(option string) tea.Cmd {
+	switch option {
+	case "Books":
+		m.books = m.allBooks
+	case "To-Be Read":
+		var filtered []*metadata.Package
+		for _, b := range m.allBooks {
+			if b.Status == "To Be Read" {
+				filtered = append(filtered, b)
+			}
+		}
+		m.books = filtered
+	}
+
+	m.paginator.SetTotalPages(len(m.books))
+	m.paginator.Page = 0
+	m.cursor = 0
+	m.covers = make(map[int]string) // Clear cache for new view
+	return tea.Batch(tea.ClearScreen, m.syncVisibleWidget())
 }
