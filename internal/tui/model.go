@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/blacktop/go-termimg"
+	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,6 +25,7 @@ type focusArea int
 const (
 	homeState sessionState = iota
 	librayState
+	fileState
 	sideFocus focusArea = iota
 	contentFocus
 )
@@ -39,8 +41,9 @@ var (
 )
 
 type MainModel struct {
-	state   sessionState
-	library *Model
+	state        sessionState
+	library      *Model
+	sideBarWidth int
 }
 
 type Model struct {
@@ -50,10 +53,10 @@ type Model struct {
 	sideBarCursor     int
 	activeArea        int
 	width             int
+	sideBarWidth      int
 	screenHeight      int
 	contentWidth      int
 	height            int
-	sideBarWidth      int
 	lowBarHeight      int
 	dynamicCardWidth  int
 	dynamicCardHeight int
@@ -67,6 +70,7 @@ type Model struct {
 	start             int
 	end               int
 	ratingInput       textinput.Model
+	filePicker        filepicker.Model
 	showRatingInput   bool
 }
 
@@ -94,16 +98,21 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 	t.Focus()
 	t.CharLimit = 10
 	t.Width = 10
+
+	fp := filepicker.New()
+	fp.AllowedTypes = []string{".epub"}
+	fp.CurrentDirectory, _ = os.UserHomeDir()
 	library := &Model{
 		books:           b,
 		paginator:       p,
 		covers:          make(map[int]string),
 		handler:         *h,
 		activeArea:      int(sideFocus),
-		MenuOptions:     []string{"Home", "Books", "To-Be Read"},
+		MenuOptions:     []string{"Home", "Books", "To-Be Read", "Add Book"},
 		showRatingInput: false,
 		ratingInput:     t,
 		allBooks:        b,
+		filePicker:      fp,
 	}
 	return &MainModel{
 		state:   homeState,
@@ -119,10 +128,13 @@ func (m *MainModel) View() string {
 	fig := utils.Fig()
 	if m.state == homeState {
 		return lipgloss.Place(m.library.width, m.library.height, lipgloss.Center, lipgloss.Center,
-			fig+"\n  󱉟 Library"+strings.Repeat(" ", 15)+"l")
+			fig+"\n  󱉟 Library"+strings.Repeat(" ", 15)+"l/L"+"\n  󱉟 To-Be Read"+strings.Repeat(" ", 12)+"t/T")
+	}
+	if m.state == fileState {
+		return m.FilePickerView()
 	}
 
-	return m.library.View()
+	return lipgloss.JoinHorizontal(lipgloss.Left, m.SideBarView(), m.library.View())
 }
 
 func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -145,6 +157,13 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.library.activeArea = int(contentFocus)
 				return m, m.library.SetView("To-Be Read")
 			}
+		case "a", "A":
+			if m.state == homeState {
+				m.state = fileState
+				m.library.sideBarCursor = 3
+				m.library.activeArea = int(contentFocus)
+				return m, tea.ClearScreen
+			}
 
 		case "ctrl+h", "esc":
 			if m.library.activeArea == int(contentFocus) {
@@ -155,9 +174,19 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.library.activeArea = int(contentFocus)
 			}
 		case "enter":
-			if m.state == librayState {
-				if m.library.MenuOptions[m.library.sideBarCursor] == "Home" {
+			if m.library.activeArea == int(sideFocus) {
+				selectedOption := m.library.MenuOptions[m.library.sideBarCursor]
+				switch selectedOption {
+				case "Home":
 					m.state = homeState
+					return m, tea.ClearScreen
+				case "Books", "To-Be Read":
+					m.state = librayState
+					m.library.activeArea = int(contentFocus)
+					return m, m.library.SetView(selectedOption)
+				case "Add Book":
+					m.state = fileState
+					m.library.activeArea = int(contentFocus)
 					return m, tea.ClearScreen
 				}
 			}
@@ -166,11 +195,12 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.library.width = msg.Width
 		m.library.screenHeight = msg.Height
-		m.library.sideBarWidth = msg.Width / 8
+		m.sideBarWidth = msg.Width / 8
+		m.library.sideBarWidth = m.sideBarWidth
 		m.library.height = msg.Height - 5
 		m.library.cols = 6
 		m.library.lowBarHeight = 4
-		m.library.contentWidth = m.library.width - m.library.sideBarWidth - 6
+		m.library.contentWidth = m.library.width - m.sideBarWidth - 6
 		contentHeight := m.library.height - m.library.lowBarHeight
 		m.library.dynamicCardWidth = (m.library.contentWidth / m.library.cols) - 2
 		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 2
@@ -184,7 +214,7 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.library.paginator.SetTotalPages(len(m.library.books))
 	}
 
-	if m.state == librayState {
+	if m.state == librayState || (m.state == fileState && m.library.activeArea == int(sideFocus)) {
 		newLib, cmd := m.library.Update(msg)
 		m.library = newLib.(*Model)
 		return m, cmd
@@ -281,14 +311,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.sideBarCursor++
 				}
 			}
-		case "enter":
-			if m.activeArea == int(sideFocus) {
-				selectedOption := m.MenuOptions[m.sideBarCursor]
-				if selectedOption == "Books" || selectedOption == "To-Be Read" {
-					m.activeArea = int(contentFocus)
-					return m, m.SetView(selectedOption)
-				}
-			}
 		case "right", "l":
 			if !m.paginator.OnLastPage() {
 				m.paginator.NextPage()
@@ -344,8 +366,6 @@ func (m Model) View() string {
 		return "\n  Initializing Kindria..."
 	}
 	var b strings.Builder
-	header := "\n Kindria, your TUI e-book library\n"
-	b.WriteString(header)
 
 	m.start, m.end = m.paginator.GetSliceBounds(len(m.books))
 	booksCards := make([]string, 0)
@@ -402,9 +422,10 @@ func (m Model) View() string {
 		}
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, booksCards[i:endIdx]...))
 	}
+	sideWidth := m.sideBarWidth
 	libraryBorderStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
 		BorderForeground(subtle).
-		Width(m.width - m.sideBarWidth - 4).Height(m.height - m.lowBarHeight).PaddingLeft(2).
+		Width(m.width - sideWidth - 4).Height(m.height - m.lowBarHeight).PaddingLeft(2).
 		PaddingTop(1)
 	if m.activeArea == int(contentFocus) {
 		libraryBorderStyle = libraryBorderStyle.BorderForeground(borders)
@@ -414,24 +435,21 @@ func (m Model) View() string {
 	books := lipgloss.JoinHorizontal(lipgloss.Top, book)
 	library := libraryBorderStyle.Render(books)
 	contentSide := (lipgloss.JoinVertical(lipgloss.Bottom, library, m.lowBarView()))
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left, m.SideBarView(), contentSide))
+	b.WriteString(contentSide)
 	b.WriteString("\n  " + m.paginator.View())
 	rendered := b.String()
 
-	sidebar := m.SideBarView()
-	sideWidth := lipgloss.Width(sidebar)
-	headerHeight := lipgloss.Height(header)
 	cardWidth := m.dynamicCardWidth
 	cardHeight := m.dynamicCardHeight
 	if len(booksCards) > 0 {
 		cardWidth = lipgloss.Width(booksCards[0])
 		cardHeight = lipgloss.Height(booksCards[0])
 	}
-	contentStartRow := headerHeight + 1
+	contentStartRow := 1
 	gridStartRow := contentStartRow + 2
 	gridStartCol := sideWidth + 1 + 3
-	coverRowOffset := -2
-	coverColOffset := 1
+	coverRowOffset := 1
+	coverColOffset := 3
 
 	var overlay strings.Builder
 	for _, c := range coverRenders {
@@ -540,12 +558,12 @@ func getCellPixelSize(cols, rows int) (int, int) {
 	return cellW, cellH
 }
 
-func (m *Model) SideBarView() string {
+func (m *MainModel) SideBarView() string {
 	var options string
-	renderedOptionsList := make([]string, len(m.MenuOptions))
+	renderedOptionsList := make([]string, len(m.library.MenuOptions))
 
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
-		BorderForeground(subtle).Width(m.sideBarWidth).Height(m.height + 2)
+		BorderForeground(subtle).Width(m.sideBarWidth).Height(m.library.height + 2)
 
 	itemWidth := m.sideBarWidth - 2
 	if itemWidth < 0 {
@@ -558,17 +576,17 @@ func (m *Model) SideBarView() string {
 		MarginBottom(1)
 	activeStyle := inactiveStyle.Foreground(lipgloss.Color("#7D56F4"))
 
-	if m.activeArea == int(sideFocus) {
+	if m.library.activeArea == int(sideFocus) {
 		style = style.BorderForeground(borders)
 	}
 
-	for i, word := range m.MenuOptions {
+	for i, word := range m.library.MenuOptions {
 		prefix := "  "
-		if i == m.sideBarCursor {
+		if i == m.library.sideBarCursor {
 			prefix = "> "
 		}
 		text := prefix + utils.ToSansBold(word)
-		if i == m.sideBarCursor {
+		if i == m.library.sideBarCursor {
 			renderedOptionsList[i] = activeStyle.Render(text)
 		} else {
 			renderedOptionsList[i] = inactiveStyle.Render(text)
@@ -648,4 +666,16 @@ func (m *Model) SetView(option string) tea.Cmd {
 	m.cursor = 0
 	m.covers = make(map[int]string) // Clear cache for new view
 	return tea.Batch(tea.ClearScreen, m.syncVisibleWidget())
+}
+
+func (m *MainModel) FilePickerView() string {
+	filePickerStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
+		BorderForeground(subtle).
+		Width(m.library.width - m.sideBarWidth - 4).Height(m.library.height).PaddingLeft(2).
+		PaddingTop(1)
+	if m.library.activeArea == int(contentFocus) {
+		filePickerStyle = filePickerStyle.BorderForeground(borders)
+	}
+	setupView := lipgloss.JoinHorizontal(lipgloss.Left, m.SideBarView(), filePickerStyle.Render())
+	return setupView
 }
