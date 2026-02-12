@@ -243,13 +243,21 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						_, err = m.library.handler.InsertBooks()
 						if err != nil {
 							log.Printf("Error inserting books:  %v", err)
+						} else {
+							books, err := m.library.handler.SelectBooks()
+							if err != nil {
+								log.Printf("Error refreshing library books: %v", err)
+							} else {
+								m.library.allBooks = books
+								m.library.books = books
+							}
 						}
 					}
 				}
 			}
 		}
 
-		if m.showFileInput {
+			if m.showFileInput {
 			switch msg := msg.(type) {
 			case tea.KeyMsg:
 				switch msg.String() {
@@ -278,12 +286,40 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			var cmd tea.Cmd
-			m.fileInput, cmd = m.fileInput.Update(msg)
-			return m, cmd
-		}
+				m.fileInput, cmd = m.fileInput.Update(msg)
+				return m, cmd
+			}
 
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
+			if m.library.activeArea == int(sideFocus) {
+				if keyMsg, ok := msg.(tea.KeyMsg); ok {
+					switch keyMsg.String() {
+					case "ctrl+l":
+						m.library.activeArea = int(contentFocus)
+						return m, nil
+					case "enter":
+						selectedOption := m.library.MenuOptions[m.library.sideBarCursor]
+						switch selectedOption {
+						case "Home":
+							m.state = homeState
+							return m, tea.ClearScreen
+						case "Books", "To-Be Read":
+							m.state = librayState
+							m.library.activeArea = int(contentFocus)
+							return m, m.library.SetView(selectedOption)
+						case "Add Book":
+							m.state = fileState
+							m.library.activeArea = int(contentFocus)
+							return m, tea.Batch(tea.ClearScreen, m.filePicker.Init())
+						}
+					}
+				}
+				newLib, cmd := m.library.Update(msg)
+				m.library = newLib.(*Model)
+				return m, cmd
+			}
+
+			switch msg := msg.(type) {
+			case tea.KeyMsg:
 			switch msg.String() {
 			case "q", "ctrl+c":
 				return m, tea.Quit
@@ -294,7 +330,6 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			case "esc":
 				m.library.activeArea = int(sideFocus)
-				m.state = homeState
 				return m, nil
 			}
 		}
