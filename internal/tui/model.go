@@ -48,6 +48,7 @@ type MainModel struct {
 	sideBarWidth  int
 	filePicker    filepicker.Model
 	selectedFiles map[string]struct{}
+	failedBooks   []string
 	selectedOrder []string
 	err           error
 	fileInput     textinput.Model
@@ -135,6 +136,7 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 		fileInput:     f,
 		showFileInput: false,
 		selectedFiles: make(map[string]struct{}),
+		failedBooks:   make([]string, 0),
 		selectedOrder: []string{},
 	}
 }
@@ -186,6 +188,66 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		panelHeight := m.library.height + 2
 		pickerHeight, _ := m.filePickerLayout(panelHeight)
 		m.filePicker.SetHeight(pickerHeight)
+
+		if !m.showFileInput && len(m.selectedFiles) > 0 {
+			switch msg := msg.(type) {
+			case tea.KeyMsg:
+				switch msg.String() {
+				case "s":
+					booksFolder, err := os.ReadDir("./books")
+					if err != nil {
+						log.Printf("Err trying to get books folder: %v", err)
+						break
+					}
+					existingNames := make(map[string]struct{}, len(booksFolder))
+					for _, b := range booksFolder {
+						existingNames[b.Name()] = struct{}{}
+					}
+					successfulCopies := make([]string, 0, len(m.selectedFiles))
+				Outerloop:
+					for book := range m.selectedFiles {
+						filename := filepath.Base(book)
+						exist, err := m.library.handler.CheckBookExist(filename)
+						if err != nil {
+							log.Printf("Err trying to check if book exist: %v", err)
+							continue
+						}
+						if exist != 0 {
+							continue
+						}
+						if _, exists := existingNames[filename]; exists {
+							continue Outerloop
+						}
+						src := book
+						err = utils.CopyFile(src, "./books/"+filename)
+						if err != nil {
+							log.Printf("Error trying to import book: %s, error: %v", book, err)
+							m.failedBooks = append(m.failedBooks, book)
+							continue
+						}
+						existingNames[filename] = struct{}{}
+						successfulCopies = append(successfulCopies, book)
+						delete(m.selectedFiles, book)
+						index := -1
+						for i, val := range m.selectedOrder {
+							if val == book {
+								index = i
+								break
+							}
+						}
+						if index != -1 {
+							m.selectedOrder = utils.Delete_at_index(m.selectedOrder, index)
+						}
+					}
+					if len(successfulCopies) > 0 {
+						_, err = m.library.handler.InsertBooks()
+						if err != nil {
+							log.Printf("Error inserting books:  %v", err)
+						}
+					}
+				}
+			}
+		}
 
 		if m.showFileInput {
 			switch msg := msg.(type) {
@@ -239,16 +301,16 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		var cmdPicker tea.Cmd
 		m.filePicker, cmdPicker = m.filePicker.Update(msg)
-			if didSelect, path := m.filePicker.DidSelectFile(msg); didSelect {
-				m.addSelectedFile(path)
-				m.err = nil
-				panelHeight := m.library.height + 2
-				pickerHeight, _ := m.filePickerLayout(panelHeight)
-				m.filePicker.SetHeight(pickerHeight)
-				if !strings.Contains(ansi.Strip(m.filePicker.View()), m.filePicker.Cursor) {
-					m.filePicker, _ = m.filePicker.Update(tea.KeyMsg{Type: tea.KeyUp})
-				}
+		if didSelect, path := m.filePicker.DidSelectFile(msg); didSelect {
+			m.addSelectedFile(path)
+			m.err = nil
+			panelHeight := m.library.height + 2
+			pickerHeight, _ := m.filePickerLayout(panelHeight)
+			m.filePicker.SetHeight(pickerHeight)
+			if !strings.Contains(ansi.Strip(m.filePicker.View()), m.filePicker.Cursor) {
+				m.filePicker, _ = m.filePicker.Update(tea.KeyMsg{Type: tea.KeyUp})
 			}
+		}
 		if didSelect, path := m.filePicker.DidSelectDisabledFile(msg); didSelect {
 			m.err = os.ErrPermission
 			log.Printf("File type not allowed for selection: %s", path)

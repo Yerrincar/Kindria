@@ -364,6 +364,14 @@ func (h *Handler) UpdateBookRating(rating float64, fileName string) error {
 	return nil
 }
 
+func (h *Handler) CheckBookExist(filename string) (int64, error) {
+	exists, err := h.Queries.CheckBookExists(context.Background(), filename)
+	if err != nil {
+		return 0, err
+	}
+	return exists, nil
+}
+
 func resolveCoverFromXHTML(r *zip.ReadCloser, href string) (string, error) {
 	f, err := findZipFile(r, href)
 	if err != nil {
