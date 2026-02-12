@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/disintegration/imaging"
 	"golang.org/x/sys/unix"
 )
@@ -41,9 +43,15 @@ var (
 )
 
 type MainModel struct {
-	state        sessionState
-	library      *Model
-	sideBarWidth int
+	state         sessionState
+	library       *Model
+	sideBarWidth  int
+	filePicker    filepicker.Model
+	selectedFiles map[string]struct{}
+	selectedOrder []string
+	err           error
+	fileInput     textinput.Model
+	showFileInput bool
 }
 
 type Model struct {
@@ -70,7 +78,6 @@ type Model struct {
 	start             int
 	end               int
 	ratingInput       textinput.Model
-	filePicker        filepicker.Model
 	showRatingInput   bool
 }
 
@@ -99,9 +106,17 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 	t.CharLimit = 10
 	t.Width = 10
 
+	f := textinput.New()
+	f.Placeholder = "Introduce .epub' folder path"
+	f.CharLimit = 60
+	f.Width = 60
+
 	fp := filepicker.New()
 	fp.AllowedTypes = []string{".epub"}
-	fp.CurrentDirectory, _ = os.UserHomeDir()
+	fp.CurrentDirectory = "/home/yeray/Downloads/"
+	fp.AutoHeight = false
+	fp.ShowPermissions = false
+	fp.ShowSize = false
 	library := &Model{
 		books:           b,
 		paginator:       p,
@@ -112,23 +127,28 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 		showRatingInput: false,
 		ratingInput:     t,
 		allBooks:        b,
-		filePicker:      fp,
 	}
 	return &MainModel{
-		state:   homeState,
-		library: library,
+		state:         homeState,
+		library:       library,
+		filePicker:    fp,
+		fileInput:     f,
+		showFileInput: false,
+		selectedFiles: make(map[string]struct{}),
+		selectedOrder: []string{},
 	}
 }
 
 func (m *MainModel) Init() tea.Cmd {
-	return nil
+	return m.filePicker.Init()
 }
 
 func (m *MainModel) View() string {
 	fig := utils.Fig()
 	if m.state == homeState {
 		return lipgloss.Place(m.library.width, m.library.height, lipgloss.Center, lipgloss.Center,
-			fig+"\n  󱉟 Library"+strings.Repeat(" ", 15)+"l/L"+"\n  󱉟 To-Be Read"+strings.Repeat(" ", 12)+"t/T")
+			fig+"\n  󱉟 Library"+strings.Repeat(" ", 15)+"l/L"+"\n  󱉟 To-Be Read"+strings.Repeat(" ", 12)+
+				"t/T"+"\n  󱉟 Add Book"+strings.Repeat(" ", 14)+"a/A")
 	}
 	if m.state == fileState {
 		return m.FilePickerView()
@@ -138,6 +158,104 @@ func (m *MainModel) View() string {
 }
 
 func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if msg, ok := msg.(tea.WindowSizeMsg); ok {
+		m.library.width = msg.Width
+		m.library.screenHeight = msg.Height
+		m.sideBarWidth = msg.Width / 8
+		m.library.sideBarWidth = m.sideBarWidth
+		m.library.height = msg.Height - 5
+		m.library.cols = 6
+		m.library.lowBarHeight = 4
+		m.library.contentWidth = m.library.width - m.sideBarWidth - 6
+		contentHeight := m.library.height - m.library.lowBarHeight
+		m.library.dynamicCardWidth = (m.library.contentWidth / m.library.cols) - 2
+		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 2
+
+		if m.library.dynamicCardWidth < 10 {
+			m.library.cols = 2
+			m.library.dynamicCardWidth = (m.library.contentWidth / 2) - 3
+			m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 3
+		}
+		m.library.cellPixelWidth, m.library.cellPixelHeight = getCellPixelSize(m.library.width, m.library.height)
+		m.library.paginator.PerPage = m.library.cols * (contentHeight / (m.library.dynamicCardHeight))
+		m.library.paginator.SetTotalPages(len(m.library.books))
+
+	}
+
+	if m.state == fileState {
+		panelHeight := m.library.height + 2
+		pickerHeight, _ := m.filePickerLayout(panelHeight)
+		m.filePicker.SetHeight(pickerHeight)
+
+		if m.showFileInput {
+			switch msg := msg.(type) {
+			case tea.KeyMsg:
+				switch msg.String() {
+				case "ctrl+c":
+					return m, tea.Quit
+				case "esc":
+					m.showFileInput = false
+					m.fileInput.Blur()
+					m.fileInput.Reset()
+					return m, nil
+				case "enter":
+					fileText := strings.TrimSpace(m.fileInput.Value())
+					if fileText != "" {
+						if _, err := os.ReadDir(fileText); err != nil {
+							m.err = err
+							m.fileInput.Placeholder = "Invalid directory"
+							m.fileInput.Reset()
+							return m, nil
+						}
+						m.err = nil
+						m.filePicker.CurrentDirectory = fileText
+						m.showFileInput = false
+						m.fileInput.Blur()
+						return m, m.filePicker.Init()
+					}
+				}
+			}
+			var cmd tea.Cmd
+			m.fileInput, cmd = m.fileInput.Update(msg)
+			return m, cmd
+		}
+
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "i", "I":
+				m.showFileInput = true
+				m.fileInput.Focus()
+				return m, nil
+
+			case "esc":
+				m.library.activeArea = int(sideFocus)
+				m.state = homeState
+				return m, nil
+			}
+		}
+
+		var cmdPicker tea.Cmd
+		m.filePicker, cmdPicker = m.filePicker.Update(msg)
+			if didSelect, path := m.filePicker.DidSelectFile(msg); didSelect {
+				m.addSelectedFile(path)
+				m.err = nil
+				panelHeight := m.library.height + 2
+				pickerHeight, _ := m.filePickerLayout(panelHeight)
+				m.filePicker.SetHeight(pickerHeight)
+				if !strings.Contains(ansi.Strip(m.filePicker.View()), m.filePicker.Cursor) {
+					m.filePicker, _ = m.filePicker.Update(tea.KeyMsg{Type: tea.KeyUp})
+				}
+			}
+		if didSelect, path := m.filePicker.DidSelectDisabledFile(msg); didSelect {
+			m.err = os.ErrPermission
+			log.Printf("File type not allowed for selection: %s", path)
+		}
+		return m, cmdPicker
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -162,9 +280,8 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = fileState
 				m.library.sideBarCursor = 3
 				m.library.activeArea = int(contentFocus)
-				return m, tea.ClearScreen
+				return m, m.filePicker.Init()
 			}
-
 		case "ctrl+h", "esc":
 			if m.library.activeArea == int(contentFocus) {
 				m.library.activeArea = int(sideFocus)
@@ -187,31 +304,10 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "Add Book":
 					m.state = fileState
 					m.library.activeArea = int(contentFocus)
-					return m, tea.ClearScreen
+					return m, tea.Batch(tea.ClearScreen, m.filePicker.Init())
 				}
 			}
 		}
-
-	case tea.WindowSizeMsg:
-		m.library.width = msg.Width
-		m.library.screenHeight = msg.Height
-		m.sideBarWidth = msg.Width / 8
-		m.library.sideBarWidth = m.sideBarWidth
-		m.library.height = msg.Height - 5
-		m.library.cols = 6
-		m.library.lowBarHeight = 4
-		m.library.contentWidth = m.library.width - m.sideBarWidth - 6
-		contentHeight := m.library.height - m.library.lowBarHeight
-		m.library.dynamicCardWidth = (m.library.contentWidth / m.library.cols) - 2
-		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 2
-		if m.library.dynamicCardWidth < 10 {
-			m.library.cols = 2
-			m.library.dynamicCardWidth = (m.library.contentWidth / 2) - 3
-			m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 3
-		}
-		m.library.cellPixelWidth, m.library.cellPixelHeight = getCellPixelSize(m.library.width, m.library.height)
-		m.library.paginator.PerPage = m.library.cols * (contentHeight / (m.library.dynamicCardHeight))
-		m.library.paginator.SetTotalPages(len(m.library.books))
 	}
 
 	if m.state == librayState || (m.state == fileState && m.library.activeArea == int(sideFocus)) {
@@ -669,13 +765,136 @@ func (m *Model) SetView(option string) tea.Cmd {
 }
 
 func (m *MainModel) FilePickerView() string {
+	sidebarView := m.SideBarView()
+	panelWidth := m.library.width - m.sideBarWidth - 4
+	panelHeight := m.library.height + 2
+	if panelWidth < 24 {
+		panelWidth = 24
+	}
+	if panelHeight < 12 {
+		panelHeight = 12
+	}
 	filePickerStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
 		BorderForeground(subtle).
-		Width(m.library.width - m.sideBarWidth - 4).Height(m.library.height).PaddingLeft(2).
-		PaddingTop(1)
+		Width(panelWidth).
+		Height(panelHeight)
 	if m.library.activeArea == int(contentFocus) {
 		filePickerStyle = filePickerStyle.BorderForeground(borders)
 	}
-	setupView := lipgloss.JoinHorizontal(lipgloss.Left, m.SideBarView(), filePickerStyle.Render())
+	var s strings.Builder
+	pickerHeight, start := m.filePickerLayout(panelHeight)
+	picker := m.filePicker
+	picker.SetHeight(pickerHeight)
+	pickerWidth := panelWidth - 2
+	if pickerWidth < 10 {
+		pickerWidth = 10
+	}
+	pickerView := truncateViewLines(picker.View(), pickerWidth)
+
+	s.WriteString("  ")
+	if m.err != nil {
+		s.WriteString(m.filePicker.Styles.DisabledFile.Render("Error: " + m.err.Error()))
+		s.WriteString("\n  ")
+	}
+	s.WriteString("Directory: " + m.filePicker.CurrentDirectory)
+	s.WriteString("\n  Press i to edit directory path, Enter to select an .epub file")
+	if m.showFileInput {
+		s.WriteString("\n\n  " + m.fileInput.View())
+	}
+	s.WriteString("\n\n  Pick one or more files:")
+	s.WriteString("\n\n" + pickerView + "\n")
+	s.WriteString("\n  Books to insert:")
+	if len(m.selectedOrder) == 0 {
+		s.WriteString("\n    (none selected)")
+	} else {
+		if start > 0 {
+			s.WriteString("\n    ... and " + strconv.Itoa(start) + " more")
+		}
+		maxNameLen := panelWidth - 20
+		if maxNameLen < 18 {
+			maxNameLen = 18
+		}
+		for i := start; i < len(m.selectedOrder); i++ {
+			name := filepath.Base(m.selectedOrder[i])
+			name = ansi.Truncate(name, maxNameLen, "...")
+			s.WriteString("\n    " + strconv.Itoa(i+1) + ". " + name)
+		}
+	}
+	contentWidth := panelWidth - 2
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+	contentHeight := panelHeight
+	if contentHeight < 6 {
+		contentHeight = 6
+	}
+	viewContent := truncateBlockHeight(truncateViewLines(s.String(), contentWidth), contentHeight)
+	fileView := filePickerStyle.Render(viewContent)
+	setupView := lipgloss.JoinHorizontal(lipgloss.Left, sidebarView, fileView)
 	return setupView
+}
+
+func (m *MainModel) filePickerLayout(panelHeight int) (int, int) {
+	const minPickerHeight = 6
+	headerLines := 5
+	if m.showFileInput {
+		headerLines += 2
+	}
+	maxVisibleSelected := panelHeight - headerLines - minPickerHeight - 7
+	if maxVisibleSelected < 1 {
+		maxVisibleSelected = 1
+	}
+	visibleSelected := len(m.selectedOrder)
+	start := 0
+	if visibleSelected > maxVisibleSelected {
+		start = visibleSelected - maxVisibleSelected
+		visibleSelected = maxVisibleSelected
+	}
+	selectedLines := 2
+	if visibleSelected == 0 {
+		selectedLines += 1
+	} else {
+		selectedLines += visibleSelected
+		if start > 0 {
+			selectedLines++
+		}
+	}
+	pickerHeight := panelHeight - headerLines - selectedLines - 4
+	if pickerHeight < minPickerHeight {
+		pickerHeight = minPickerHeight
+	}
+	return pickerHeight, start
+}
+
+func truncateViewLines(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = ansi.Truncate(line, width, "...")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func truncateBlockHeight(s string, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) <= maxLines {
+		return strings.Join(lines, "\n")
+	}
+	return strings.Join(lines[:maxLines], "\n")
+}
+
+func (m *MainModel) addSelectedFile(path string) {
+	if path == "" {
+		return
+	}
+	if _, exists := m.selectedFiles[path]; exists {
+		return
+	}
+	m.selectedFiles[path] = struct{}{}
+	m.selectedOrder = append(m.selectedOrder, path)
 }
