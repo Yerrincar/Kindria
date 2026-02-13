@@ -3,12 +3,14 @@ package tui
 import (
 	metadata "Kindria/internal/core/api/books"
 	"Kindria/internal/utils"
+	"fmt"
 	"image/color"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blacktop/go-termimg"
 	"github.com/charmbracelet/bubbles/filepicker"
@@ -53,6 +55,9 @@ type MainModel struct {
 	err           error
 	fileInput     textinput.Model
 	showFileInput bool
+	importing     bool
+	showLoader    bool
+	importStatus  string
 }
 
 type Model struct {
@@ -83,6 +88,15 @@ type Model struct {
 }
 
 type coversLoadedMsg map[int]string
+
+type importLoaderDelayMsg struct{}
+
+type importFinishedMsg struct {
+	successfulCopies []string
+	failedBooks      []string
+	refreshedBooks   []*metadata.Package
+	err              error
+}
 
 var debugEnabled = os.Getenv("KINDRIA_DEBUG") != ""
 
@@ -160,6 +174,45 @@ func (m *MainModel) View() string {
 }
 
 func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case importLoaderDelayMsg:
+		if m.importing {
+			m.showLoader = true
+		}
+		return m, nil
+	case importFinishedMsg:
+		m.importing = false
+		m.showLoader = false
+		if msg.err != nil {
+			m.importStatus = "Insert failed: " + msg.err.Error()
+			return m, nil
+		}
+		if len(msg.successfulCopies) > 0 {
+			for _, book := range msg.successfulCopies {
+				delete(m.selectedFiles, book)
+				index := -1
+				for i, val := range m.selectedOrder {
+					if val == book {
+						index = i
+						break
+					}
+				}
+				if index != -1 {
+					m.selectedOrder = utils.Delete_at_index(m.selectedOrder, index)
+				}
+			}
+		}
+		if len(msg.failedBooks) > 0 {
+			m.failedBooks = append(m.failedBooks, msg.failedBooks...)
+		}
+		if len(msg.refreshedBooks) > 0 {
+			m.library.allBooks = msg.refreshedBooks
+			m.library.books = msg.refreshedBooks
+		}
+		m.importStatus = fmt.Sprintf("Inserted: %d | Failed: %d", len(msg.successfulCopies), len(msg.failedBooks))
+		return m, nil
+	}
+
 	if msg, ok := msg.(tea.WindowSizeMsg); ok {
 		m.library.width = msg.Width
 		m.library.screenHeight = msg.Height
@@ -194,70 +247,27 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case tea.KeyMsg:
 				switch msg.String() {
 				case "s":
-					booksFolder, err := os.ReadDir("./books")
-					if err != nil {
-						log.Printf("Err trying to get books folder: %v", err)
+					if m.importing {
 						break
 					}
-					existingNames := make(map[string]struct{}, len(booksFolder))
-					for _, b := range booksFolder {
-						existingNames[b.Name()] = struct{}{}
-					}
-					successfulCopies := make([]string, 0, len(m.selectedFiles))
-				Outerloop:
+					selected := make([]string, 0, len(m.selectedFiles))
 					for book := range m.selectedFiles {
-						filename := filepath.Base(book)
-						exist, err := m.library.handler.CheckBookExist(filename)
-						if err != nil {
-							log.Printf("Err trying to check if book exist: %v", err)
-							continue
-						}
-						if exist != 0 {
-							continue
-						}
-						if _, exists := existingNames[filename]; exists {
-							continue Outerloop
-						}
-						src := book
-						err = utils.CopyFile(src, "./books/"+filename)
-						if err != nil {
-							log.Printf("Error trying to import book: %s, error: %v", book, err)
-							m.failedBooks = append(m.failedBooks, book)
-							continue
-						}
-						existingNames[filename] = struct{}{}
-						successfulCopies = append(successfulCopies, book)
-						delete(m.selectedFiles, book)
-						index := -1
-						for i, val := range m.selectedOrder {
-							if val == book {
-								index = i
-								break
-							}
-						}
-						if index != -1 {
-							m.selectedOrder = utils.Delete_at_index(m.selectedOrder, index)
-						}
+						selected = append(selected, book)
 					}
-					if len(successfulCopies) > 0 {
-						_, err = m.library.handler.InsertBooks()
-						if err != nil {
-							log.Printf("Error inserting books:  %v", err)
-						} else {
-							books, err := m.library.handler.SelectBooks()
-							if err != nil {
-								log.Printf("Error refreshing library books: %v", err)
-							} else {
-								m.library.allBooks = books
-								m.library.books = books
-							}
-						}
-					}
+					m.importing = true
+					m.showLoader = false
+					m.importStatus = ""
+					return m, tea.Batch(
+						m.importBooksCmd(selected),
+						tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg {
+							return importLoaderDelayMsg{}
+						}),
+					)
 				}
 			}
 		}
 
-			if m.showFileInput {
+		if m.showFileInput {
 			switch msg := msg.(type) {
 			case tea.KeyMsg:
 				switch msg.String() {
@@ -286,40 +296,40 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			var cmd tea.Cmd
-				m.fileInput, cmd = m.fileInput.Update(msg)
-				return m, cmd
-			}
+			m.fileInput, cmd = m.fileInput.Update(msg)
+			return m, cmd
+		}
 
-			if m.library.activeArea == int(sideFocus) {
-				if keyMsg, ok := msg.(tea.KeyMsg); ok {
-					switch keyMsg.String() {
-					case "ctrl+l":
+		if m.library.activeArea == int(sideFocus) {
+			if keyMsg, ok := msg.(tea.KeyMsg); ok {
+				switch keyMsg.String() {
+				case "ctrl+l":
+					m.library.activeArea = int(contentFocus)
+					return m, nil
+				case "enter":
+					selectedOption := m.library.MenuOptions[m.library.sideBarCursor]
+					switch selectedOption {
+					case "Home":
+						m.state = homeState
+						return m, tea.ClearScreen
+					case "Books", "To-Be Read":
+						m.state = librayState
 						m.library.activeArea = int(contentFocus)
-						return m, nil
-					case "enter":
-						selectedOption := m.library.MenuOptions[m.library.sideBarCursor]
-						switch selectedOption {
-						case "Home":
-							m.state = homeState
-							return m, tea.ClearScreen
-						case "Books", "To-Be Read":
-							m.state = librayState
-							m.library.activeArea = int(contentFocus)
-							return m, m.library.SetView(selectedOption)
-						case "Add Book":
-							m.state = fileState
-							m.library.activeArea = int(contentFocus)
-							return m, tea.Batch(tea.ClearScreen, m.filePicker.Init())
-						}
+						return m, m.library.SetView(selectedOption)
+					case "Add Book":
+						m.state = fileState
+						m.library.activeArea = int(contentFocus)
+						return m, tea.Batch(tea.ClearScreen, m.filePicker.Init())
 					}
 				}
-				newLib, cmd := m.library.Update(msg)
-				m.library = newLib.(*Model)
-				return m, cmd
 			}
+			newLib, cmd := m.library.Update(msg)
+			m.library = newLib.(*Model)
+			return m, cmd
+		}
 
-			switch msg := msg.(type) {
-			case tea.KeyMsg:
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
 			switch msg.String() {
 			case "q", "ctrl+c":
 				return m, tea.Quit
@@ -901,7 +911,9 @@ func (m *MainModel) FilePickerView() string {
 	s.WriteString("\n\n  Pick one or more files:")
 	s.WriteString("\n\n" + pickerView + "\n")
 	s.WriteString("\n  Books to insert:")
-	if len(m.selectedOrder) == 0 {
+	if m.importing && m.showLoader {
+		s.WriteString("\n    Inserting books...")
+	} else if len(m.selectedOrder) == 0 {
 		s.WriteString("\n    (none selected)")
 	} else {
 		if start > 0 {
@@ -916,6 +928,9 @@ func (m *MainModel) FilePickerView() string {
 			name = ansi.Truncate(name, maxNameLen, "...")
 			s.WriteString("\n    " + strconv.Itoa(i+1) + ". " + name)
 		}
+	}
+	if m.importStatus != "" {
+		s.WriteString("\n\n  " + m.importStatus)
 	}
 	contentWidth := panelWidth - 2
 	if contentWidth < 10 {
@@ -994,4 +1009,69 @@ func (m *MainModel) addSelectedFile(path string) {
 	}
 	m.selectedFiles[path] = struct{}{}
 	m.selectedOrder = append(m.selectedOrder, path)
+}
+
+func (m *MainModel) importBooksCmd(selected []string) tea.Cmd {
+	handler := m.library.handler
+	return func() tea.Msg {
+		booksFolder, err := os.ReadDir("./books")
+		if err != nil {
+			return importFinishedMsg{err: err}
+		}
+		existingNames := make(map[string]struct{}, len(booksFolder))
+		for _, b := range booksFolder {
+			existingNames[b.Name()] = struct{}{}
+		}
+
+		successfulCopies := make([]string, 0, len(selected))
+		failedBooks := make([]string, 0)
+		for _, book := range selected {
+			filename := filepath.Base(book)
+			exist, err := handler.CheckBookExist(filename)
+			if err != nil {
+				failedBooks = append(failedBooks, book)
+				continue
+			}
+			if exist != 0 {
+				continue
+			}
+			if _, exists := existingNames[filename]; exists {
+				continue
+			}
+			if err := utils.CopyFile(book, "./books/"+filename); err != nil {
+				failedBooks = append(failedBooks, book)
+				continue
+			}
+			existingNames[filename] = struct{}{}
+			successfulCopies = append(successfulCopies, book)
+		}
+
+		if len(successfulCopies) == 0 {
+			return importFinishedMsg{
+				successfulCopies: successfulCopies,
+				failedBooks:      failedBooks,
+			}
+		}
+
+		if _, err := handler.InsertBooks(); err != nil {
+			return importFinishedMsg{
+				successfulCopies: successfulCopies,
+				failedBooks:      failedBooks,
+				err:              err,
+			}
+		}
+		books, err := handler.SelectBooks()
+		if err != nil {
+			return importFinishedMsg{
+				successfulCopies: successfulCopies,
+				failedBooks:      failedBooks,
+				err:              err,
+			}
+		}
+		return importFinishedMsg{
+			successfulCopies: successfulCopies,
+			failedBooks:      failedBooks,
+			refreshedBooks:   books,
+		}
+	}
 }
