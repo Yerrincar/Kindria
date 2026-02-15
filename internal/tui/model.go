@@ -3,6 +3,8 @@ package tui
 import (
 	metadata "Kindria/internal/core/api/books"
 	"Kindria/internal/utils"
+	kindle "Kindria/tools"
+	"context"
 	"fmt"
 	"image/color"
 	"log"
@@ -30,6 +32,7 @@ const (
 	homeState sessionState = iota
 	librayState
 	fileState
+	kindleState
 	sideFocus focusArea = iota
 	contentFocus
 )
@@ -58,6 +61,14 @@ type MainModel struct {
 	importing     bool
 	showLoader    bool
 	importStatus  string
+	kindleBooks   []string
+	kindleDocsURI string
+	kindleCursor  int
+	kindleSelect  bool
+	kindlePicked  map[string]struct{}
+	kindleSyncing bool
+	kindleLoader  bool
+	kindleStatus  string
 }
 
 type Model struct {
@@ -94,8 +105,25 @@ type importLoaderDelayMsg struct{}
 type importFinishedMsg struct {
 	successfulCopies []string
 	failedBooks      []string
+	duplicateCount   int
 	refreshedBooks   []*metadata.Package
 	err              error
+}
+
+type kindleBooksLoadedMsg struct {
+	docsURI string
+	books   []string
+	err     error
+}
+
+type kindleSyncDelayMsg struct{}
+
+type kindleSyncFinishedMsg struct {
+	inserted      int
+	failed        int
+	duplicated    int
+	refreshedBook []*metadata.Package
+	err           error
 }
 
 var debugEnabled = os.Getenv("KINDRIA_DEBUG") != ""
@@ -138,7 +166,7 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 		covers:          make(map[int]string),
 		handler:         *h,
 		activeArea:      int(sideFocus),
-		MenuOptions:     []string{"Home", "Books", "To-Be Read", "Add Book"},
+		MenuOptions:     []string{"Home", "Books", "To-Be Read", "Add Book", "Synchronize \nKindle"},
 		showRatingInput: false,
 		ratingInput:     t,
 		allBooks:        b,
@@ -152,6 +180,8 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 		selectedFiles: make(map[string]struct{}),
 		failedBooks:   make([]string, 0),
 		selectedOrder: []string{},
+		kindleBooks:   []string{},
+		kindlePicked:  make(map[string]struct{}),
 	}
 }
 
@@ -164,10 +194,13 @@ func (m *MainModel) View() string {
 	if m.state == homeState {
 		return lipgloss.Place(m.library.width, m.library.height, lipgloss.Center, lipgloss.Center,
 			fig+"\n  󱉟 Library"+strings.Repeat(" ", 15)+"l/L"+"\n  󱉟 To-Be Read"+strings.Repeat(" ", 12)+
-				"t/T"+"\n  󱉟 Add Book"+strings.Repeat(" ", 14)+"a/A")
+				"t/T"+"\n  󱉟 Add Book"+strings.Repeat(" ", 14)+"a/A"+"\n  󱉟 Synchronize Kindle"+strings.Repeat(" ", 4)+"k/K")
 	}
 	if m.state == fileState {
 		return m.FilePickerView()
+	}
+	if m.state == kindleState {
+		return m.KindleView()
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Left, m.SideBarView(), m.library.View())
@@ -209,7 +242,36 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.library.allBooks = msg.refreshedBooks
 			m.library.books = msg.refreshedBooks
 		}
-		m.importStatus = fmt.Sprintf("Inserted: %d | Failed: %d", len(msg.successfulCopies), len(msg.failedBooks))
+		m.importStatus = fmt.Sprintf("Inserted: %d | Failed: %d | Duplicated: %d", len(msg.successfulCopies), len(msg.failedBooks), msg.duplicateCount)
+		return m, nil
+	case kindleBooksLoadedMsg:
+		if msg.err != nil {
+			m.kindleStatus = "Kindle error: " + msg.err.Error()
+			return m, nil
+		}
+		m.kindleDocsURI = msg.docsURI
+		m.kindleBooks = msg.books
+		m.kindleCursor = 0
+		m.kindleStatus = fmt.Sprintf("Found %d books", len(msg.books))
+		m.kindlePicked = make(map[string]struct{})
+		return m, nil
+	case kindleSyncDelayMsg:
+		if m.kindleSyncing {
+			m.kindleLoader = true
+		}
+		return m, nil
+	case kindleSyncFinishedMsg:
+		m.kindleSyncing = false
+		m.kindleLoader = false
+		if msg.err != nil {
+			m.kindleStatus = "Sync failed: " + msg.err.Error()
+			return m, nil
+		}
+		if len(msg.refreshedBook) > 0 {
+			m.library.allBooks = msg.refreshedBook
+			m.library.books = msg.refreshedBook
+		}
+		m.kindleStatus = fmt.Sprintf("Inserted: %d | Failed: %d | Duplicated: %d", msg.inserted, msg.failed, msg.duplicated)
 		return m, nil
 	}
 
@@ -320,6 +382,10 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.state = fileState
 						m.library.activeArea = int(contentFocus)
 						return m, tea.Batch(tea.ClearScreen, m.filePicker.Init())
+					case "Synchronize Kindle":
+						m.state = kindleState
+						m.library.activeArea = int(contentFocus)
+						return m, tea.Batch(tea.ClearScreen, m.loadKindleBooksCmd())
 					}
 				}
 			}
@@ -363,6 +429,101 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmdPicker
 	}
 
+	if m.state == kindleState {
+		if m.library.activeArea == int(sideFocus) {
+			if keyMsg, ok := msg.(tea.KeyMsg); ok {
+				switch keyMsg.String() {
+				case "ctrl+l":
+					m.library.activeArea = int(contentFocus)
+					return m, nil
+				case "enter":
+					selectedOption := m.library.MenuOptions[m.library.sideBarCursor]
+					switch selectedOption {
+					case "Home":
+						m.state = homeState
+						return m, tea.ClearScreen
+					case "Books", "To-Be Read":
+						m.state = librayState
+						m.library.activeArea = int(contentFocus)
+						return m, m.library.SetView(selectedOption)
+					case "Add Book":
+						m.state = fileState
+						m.library.activeArea = int(contentFocus)
+						return m, tea.Batch(tea.ClearScreen, m.filePicker.Init())
+					case "Synchronize Kindle":
+						m.state = kindleState
+						m.library.activeArea = int(contentFocus)
+						return m, tea.Batch(tea.ClearScreen, m.loadKindleBooksCmd())
+					}
+				}
+			}
+			newLib, cmd := m.library.Update(msg)
+			m.library = newLib.(*Model)
+			return m, cmd
+		}
+
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.library.activeArea = int(sideFocus)
+				return m, nil
+			case "up", "k":
+				if m.kindleCursor > 0 {
+					m.kindleCursor--
+				}
+				return m, nil
+			case "down", "j":
+				if m.kindleCursor < len(m.kindleBooks)-1 {
+					m.kindleCursor++
+				}
+				return m, nil
+			case "i", "I":
+				m.kindleSelect = !m.kindleSelect
+				if !m.kindleSelect {
+					m.kindlePicked = make(map[string]struct{})
+				}
+				return m, nil
+			case " ", "enter":
+				if m.kindleSelect && len(m.kindleBooks) > 0 {
+					name := m.kindleBooks[m.kindleCursor]
+					if _, ok := m.kindlePicked[name]; ok {
+						delete(m.kindlePicked, name)
+					} else {
+						m.kindlePicked[name] = struct{}{}
+					}
+				}
+				return m, nil
+			case "s":
+				if m.kindleSyncing {
+					return m, nil
+				}
+				var selected []string
+				if m.kindleSelect {
+					if len(m.kindlePicked) == 0 {
+						m.kindleStatus = "No books selected"
+						return m, nil
+					}
+					selected = make([]string, 0, len(m.kindlePicked))
+					for name := range m.kindlePicked {
+						selected = append(selected, name)
+					}
+				}
+				m.kindleSyncing = true
+				m.kindleLoader = false
+				m.kindleStatus = ""
+				return m, tea.Batch(
+					m.kindleSyncCmd(m.kindleDocsURI, selected),
+					tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg {
+						return kindleSyncDelayMsg{}
+					}),
+				)
+			}
+		}
+		return m, nil
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -389,6 +550,13 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.library.activeArea = int(contentFocus)
 				return m, m.filePicker.Init()
 			}
+		case "k", "K":
+			if m.state == homeState {
+				m.state = kindleState
+				m.library.sideBarCursor = 4
+				m.library.activeArea = int(contentFocus)
+				return m, tea.Batch(tea.ClearScreen, m.loadKindleBooksCmd())
+			}
 		case "ctrl+h", "esc":
 			if m.library.activeArea == int(contentFocus) {
 				m.library.activeArea = int(sideFocus)
@@ -412,6 +580,10 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = fileState
 					m.library.activeArea = int(contentFocus)
 					return m, tea.Batch(tea.ClearScreen, m.filePicker.Init())
+				case "Synchronize Kindle":
+					m.state = kindleState
+					m.library.activeArea = int(contentFocus)
+					return m, tea.Batch(tea.ClearScreen, m.loadKindleBooksCmd())
 				}
 			}
 		}
@@ -946,6 +1118,64 @@ func (m *MainModel) FilePickerView() string {
 	return setupView
 }
 
+func (m *MainModel) KindleView() string {
+	sidebarView := m.SideBarView()
+	panelWidth := m.library.width - m.sideBarWidth - 4
+	panelHeight := m.library.height + 2
+	if panelWidth < 24 {
+		panelWidth = 24
+	}
+	if panelHeight < 12 {
+		panelHeight = 12
+	}
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
+		BorderForeground(subtle).
+		Width(panelWidth).
+		Height(panelHeight)
+	if m.library.activeArea == int(contentFocus) {
+		style = style.BorderForeground(borders)
+	}
+
+	var s strings.Builder
+	s.WriteString("  Kindle sync\n")
+	if m.kindleDocsURI != "" {
+		s.WriteString("  Source: " + m.kindleDocsURI + "\n")
+	}
+	s.WriteString("  s: Synchronize all books\n")
+	s.WriteString("  i: Select which books synchronize\n")
+	if m.kindleSelect {
+		s.WriteString("  space/enter: toggle selection\n")
+	}
+	s.WriteString("\n  Books found:\n")
+
+	if m.kindleSyncing && m.kindleLoader {
+		s.WriteString("\n    Synchronizing Kindle books...\n")
+	} else if len(m.kindleBooks) == 0 {
+		s.WriteString("\n    (no supported books found)\n")
+	} else {
+		for i, name := range m.kindleBooks {
+			prefix := "    "
+			if i == m.kindleCursor {
+				prefix = "  > "
+			}
+			if m.kindleSelect {
+				if _, ok := m.kindlePicked[name]; ok {
+					prefix += "[x] "
+				} else {
+					prefix += "[ ] "
+				}
+			}
+			s.WriteString(prefix + ansi.Truncate(name, panelWidth-8, "...") + "\n")
+		}
+	}
+	if m.kindleStatus != "" {
+		s.WriteString("\n  " + m.kindleStatus + "\n")
+	}
+
+	content := truncateBlockHeight(truncateViewLines(s.String(), panelWidth-2), panelHeight)
+	return lipgloss.JoinHorizontal(lipgloss.Left, sidebarView, style.Render(content))
+}
+
 func (m *MainModel) filePickerLayout(panelHeight int) (int, int) {
 	const minPickerHeight = 6
 	headerLines := 5
@@ -1025,6 +1255,7 @@ func (m *MainModel) importBooksCmd(selected []string) tea.Cmd {
 
 		successfulCopies := make([]string, 0, len(selected))
 		failedBooks := make([]string, 0)
+		duplicateCount := 0
 		for _, book := range selected {
 			filename := filepath.Base(book)
 			exist, err := handler.CheckBookExist(filename)
@@ -1033,6 +1264,7 @@ func (m *MainModel) importBooksCmd(selected []string) tea.Cmd {
 				continue
 			}
 			if exist != 0 {
+				duplicateCount++
 				continue
 			}
 			if _, exists := existingNames[filename]; exists {
@@ -1050,6 +1282,7 @@ func (m *MainModel) importBooksCmd(selected []string) tea.Cmd {
 			return importFinishedMsg{
 				successfulCopies: successfulCopies,
 				failedBooks:      failedBooks,
+				duplicateCount:   duplicateCount,
 			}
 		}
 
@@ -1057,6 +1290,7 @@ func (m *MainModel) importBooksCmd(selected []string) tea.Cmd {
 			return importFinishedMsg{
 				successfulCopies: successfulCopies,
 				failedBooks:      failedBooks,
+				duplicateCount:   duplicateCount,
 				err:              err,
 			}
 		}
@@ -1065,13 +1299,44 @@ func (m *MainModel) importBooksCmd(selected []string) tea.Cmd {
 			return importFinishedMsg{
 				successfulCopies: successfulCopies,
 				failedBooks:      failedBooks,
+				duplicateCount:   duplicateCount,
 				err:              err,
 			}
 		}
 		return importFinishedMsg{
 			successfulCopies: successfulCopies,
 			failedBooks:      failedBooks,
+			duplicateCount:   duplicateCount,
 			refreshedBooks:   books,
+		}
+	}
+}
+
+func (m *MainModel) loadKindleBooksCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		docsURI, books, err := kindle.ScanKindleBooks(ctx)
+		return kindleBooksLoadedMsg{
+			docsURI: docsURI,
+			books:   books,
+			err:     err,
+		}
+	}
+}
+
+func (m *MainModel) kindleSyncCmd(docsURI string, selected []string) tea.Cmd {
+	handler := m.library.handler
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		res, err := kindle.KindleExtract(ctx, &handler, docsURI, selected)
+		return kindleSyncFinishedMsg{
+			inserted:      res.Inserted,
+			failed:        res.Failed,
+			duplicated:    res.Duplicated,
+			refreshedBook: res.Refreshed,
+			err:           err,
 		}
 	}
 }
