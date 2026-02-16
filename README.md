@@ -2,7 +2,7 @@
 
 TUI EPUB library manager.
 
-**Demo:** [`assets/kindria.mp4`](assets/kindria.mp4)
+**Demo:** [`https://github.com/Yerrincar/Kindria/blob/main/assets/kindria.mp4`](https://github.com/Yerrincar/Kindria/blob/main/assets/kindria.mp4)
 
 ## Highlights
 
@@ -104,6 +104,3 @@ Created and maintained in this repository by the Kindria project author.
 ## License
 
 MIT License. See [`LICENSE`](LICENSE).
-=======
-### Kindria, a TUI E-book library 
-assets/kindria.mp4
