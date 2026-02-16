@@ -79,6 +79,7 @@ type MainModel struct {
 type Model struct {
 	books              []*metadata.Package
 	allBooks           []*metadata.Package
+	currentView        string
 	cursor             int
 	sideBarCursor      int
 	activeArea         int
@@ -936,6 +937,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.books[m.cursor].Status = "Read"
 			m.books[m.cursor].ReadingDate = readingDate
+			if m.currentView == "To-Be Read" {
+				return m, m.SetView("To-Be Read")
+			}
 		case "u", "U":
 			readingDate, err := m.handler.UpdateBookStatus("Unread", m.books[m.cursor].BookFile)
 			if err != nil {
@@ -943,6 +947,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.books[m.cursor].Status = "Unread"
 			m.books[m.cursor].ReadingDate = readingDate
+			if m.currentView == "To-Be Read" {
+				return m, m.SetView("To-Be Read")
+			}
 		case "t", "T":
 			readingDate, err := m.handler.UpdateBookStatus("To Be Read", m.books[m.cursor].BookFile)
 			if err != nil {
@@ -1234,11 +1241,33 @@ func (m *MainModel) SideBarView() string {
 
 func (m *Model) lowBarView() string {
 	contentWidth := m.contentWidth + 2
-	info, err := m.handler.SelectBookInfo()
-	if err != nil {
-		log.Print("No book selected")
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder(), true, true, true, true).
+		BorderForeground(subtle).
+		Foreground(normal).
+		Width(contentWidth).
+		Height(m.lowBarHeight)
+
+	if m.activeArea == int(contentFocus) {
+		style = style.BorderForeground(borders)
 	}
-	selectedBook := info[m.cursor]
+
+	if len(m.books) == 0 || m.cursor >= len(m.books) {
+		empty := lipgloss.NewStyle().Foreground(subtle).Render("  No books in this view")
+		return style.Render(empty)
+	}
+
+	selectedBook := m.books[m.cursor]
+	info, err := m.handler.SelectBookInfo()
+	if err == nil {
+		for _, b := range info {
+			if b.BookFile == selectedBook.BookFile {
+				selectedBook = b
+				break
+			}
+		}
+	}
+
 	titleLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Title:")
 	authorLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Author:")
 	genresLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Genres:")
@@ -1273,21 +1302,11 @@ func (m *Model) lowBarView() string {
 	)
 
 	finalString := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, strings.Repeat(" ", columnGap), medCol, strings.Repeat(" ", columnGap-1), rightCol)
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder(), true, true, true, true).
-		BorderForeground(subtle).
-		Foreground(normal).
-		Width(contentWidth).
-		Height(m.lowBarHeight)
-
-	if m.activeArea == int(contentFocus) {
-		style = style.BorderForeground(borders)
-	}
-
 	return style.Render(finalString)
 }
 
 func (m *Model) SetView(option string) tea.Cmd {
+	m.currentView = option
 	switch option {
 	case "Books":
 		m.books = m.allBooks
