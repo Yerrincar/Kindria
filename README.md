@@ -2,7 +2,7 @@
 
 TUI EPUB library manager.
 
-**Demo:** [`https://github.com/Yerrincar/Kindria/blob/main/assets/kindria.mp4`](https://github.com/Yerrincar/Kindria/blob/main/assets/kindria.mp4)
+**Demo:**https://github.com/user-attachments/assets/e75827ac-d573-4a6a-8c21-63024f9acf0c
 
 ## Highlights
 
