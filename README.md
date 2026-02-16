@@ -68,7 +68,8 @@ go run .
 
 ## Documentation
 
-- This `README.md` is the main setup/usage document
+- Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Development setup and workflows: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
 - In-app key hints are shown in each screen (Library, Add Book, Kindle, Themes)
 
 ## Terminal Notes
