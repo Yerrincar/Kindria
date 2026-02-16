@@ -377,20 +377,40 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sideBarWidth = msg.Width / 8
 		m.library.sideBarWidth = m.sideBarWidth
 		m.library.height = msg.Height - 5
-		m.library.cols = 6
 		m.library.lowBarHeight = 4
 		m.library.contentWidth = m.library.width - m.sideBarWidth - 6
 		contentHeight := m.library.height - m.library.lowBarHeight
-		m.library.dynamicCardWidth = (m.library.contentWidth / m.library.cols) - 2
-		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 2
 
+		usableContentWidth := m.library.contentWidth
+		if usableContentWidth < 1 {
+			usableContentWidth = 1
+		}
+		const minCardWidth = 22
+		m.library.cols = usableContentWidth / minCardWidth
+		if m.library.cols < 1 {
+			m.library.cols = 1
+		}
+
+		m.library.dynamicCardWidth = (usableContentWidth / m.library.cols) - 2
 		if m.library.dynamicCardWidth < 10 {
-			m.library.cols = 2
-			m.library.dynamicCardWidth = (m.library.contentWidth / 2) - 3
-			m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 3
+			m.library.dynamicCardWidth = 10
+		}
+		m.library.dynamicCardHeight = int(float64(m.library.dynamicCardWidth)*0.74) - 2
+		if m.library.dynamicCardHeight < 1 {
+			m.library.dynamicCardHeight = 1
 		}
 		m.library.cellPixelWidth, m.library.cellPixelHeight = getCellPixelSize(m.library.width, m.library.height)
-		m.library.paginator.PerPage = m.library.cols * (contentHeight / (m.library.dynamicCardHeight))
+		rowsPerPage := contentHeight / m.library.dynamicCardHeight
+		if rowsPerPage < 1 {
+			rowsPerPage = 1
+		}
+		if rowsPerPage > 2 {
+			rowsPerPage = 2
+		}
+		m.library.paginator.PerPage = m.library.cols * rowsPerPage
+		if m.library.paginator.PerPage < 1 {
+			m.library.paginator.PerPage = 1
+		}
 		m.library.paginator.SetTotalPages(len(m.library.books))
 
 	}
