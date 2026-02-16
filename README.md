@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Kindria
 
 TUI EPUB library manager.
@@ -108,4 +107,3 @@ MIT License. See [`LICENSE`](LICENSE).
 =======
 ### Kindria, a TUI E-book library 
 assets/kindria.mp4
->>>>>>> 4b2c372420cf7c71dcc8a93eae1013262e1171f0
