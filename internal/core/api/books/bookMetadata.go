@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"log"
 	_ "modernc.org/sqlite"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 )
 
 type CoverManager struct {
@@ -35,6 +37,7 @@ type Package struct {
 	BookFile          string   `db:"file_name"`
 	Rating            float64  `db:"rating"`
 	Status            string   `db:"status"`
+	ReadingDate       string   `db:"reading_date"`
 }
 
 type MetaData struct {
@@ -300,8 +303,9 @@ func (h *Handler) SelectBooks() ([]*Package, error) {
 				Genres:      genresSlice,
 				Language:    row.Language,
 			},
-			BookFile: row.FileName,
-			Status:   row.Status,
+			BookFile:    row.FileName,
+			Status:      row.Status,
+			ReadingDate: row.ReadingDate,
 		}
 		books = append(books, p)
 	}
@@ -328,9 +332,10 @@ func (h *Handler) SelectBookInfo() ([]*Package, error) {
 				Author: row.Author,
 				Genres: genresSlice,
 			},
-			BookFile: row.FileName,
-			Rating:   finalRating,
-			Status:   row.Status,
+			BookFile:    row.FileName,
+			Rating:      finalRating,
+			Status:      row.Status,
+			ReadingDate: row.ReadingDate,
 		}
 		books = append(books, p)
 	}
@@ -345,12 +350,16 @@ func (h *Handler) SelectBookPath(bookFile string) (string, error) {
 	return path, nil
 }
 
-func (h *Handler) UpdateBookStatus(status, fileName string) error {
-	err := h.Queries.UpdateStatus(context.Background(), db.UpdateStatusParams{Status: status, FileName: fileName})
-	if err != nil {
-		return err
+func (h *Handler) UpdateBookStatus(status, fileName string) (string, error) {
+	readingDate := ""
+	if status == "Read" {
+		readingDate = time.Now().Format("2006-01-02")
 	}
-	return nil
+	err := h.Queries.UpdateStatus(context.Background(), db.UpdateStatusParams{Status: status, ReadingDate: readingDate, FileName: fileName})
+	if err != nil {
+		return "", err
+	}
+	return readingDate, nil
 }
 
 func (h *Handler) UpdateBookRating(rating float64, fileName string) error {
@@ -370,6 +379,40 @@ func (h *Handler) CheckBookExist(filename string) (int64, error) {
 		return 0, err
 	}
 	return exists, nil
+}
+
+func (h *Handler) EnsureReadingDateColumn() error {
+	rows, err := h.DB.Query("PRAGMA table_info(books)")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var (
+		cid        int
+		name       string
+		colType    string
+		notNull    int
+		defaultV   sql.NullString
+		primaryKey int
+	)
+	for rows.Next() {
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultV, &primaryKey); err != nil {
+			return err
+		}
+		if name == "reading_date" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = h.DB.Exec("ALTER TABLE books ADD reading_date TEXT NOT NULL DEFAULT ''")
+	if err != nil {
+		return fmt.Errorf("alter books add reading_date: %w", err)
+	}
+	return nil
 }
 
 func resolveCoverFromXHTML(r *zip.ReadCloser, href string) (string, error) {

@@ -1,14 +1,20 @@
 package utils
 
 import (
+	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
 func Fig() string {
-	lines := []string{
+	return FigWithPalette(159, 1)
+}
+
+func figLines() []string {
+	return []string{
 		"██╗  ██╗██╗███╗   ██╗██████╗ ██████╗ ██╗ █████╗ ",
 		"██║ ██╔╝██║████╗  ██║██╔══██╗██╔══██╗██║██╔══██╗",
 		"█████╔╝ ██║██╔██╗ ██║██║  ██║██████╔╝██║███████║",
@@ -16,14 +22,74 @@ func Fig() string {
 		"██║  ██╗██║██║ ╚████║██████╔╝██║  ██║██║██║  ██║",
 		"╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝",
 	}
+}
+
+func FigWithColor(colorHex string) string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colorHex)).
+		Render(strings.Join(figLines(), "\n"))
+}
+
+func FigWithGradient(startHex, endHex string) string {
+	lines := figLines()
+	if len(lines) == 0 {
+		return ""
+	}
+	sr, sg, sb, okStart := parseHexColor(startHex)
+	er, eg, eb, okEnd := parseHexColor(endHex)
+	if !okStart || !okEnd {
+		return FigWithColor(startHex)
+	}
+
+	var b strings.Builder
+	den := len(lines) - 1
+	if den <= 0 {
+		return FigWithColor(startHex)
+	}
+	for i, line := range lines {
+		t := float64(i) / float64(den)
+		r := lerp(sr, er, t)
+		g := lerp(sg, eg, t)
+		bl := lerp(sb, eb, t)
+		colorHex := fmt.Sprintf("#%02x%02x%02x", r, g, bl)
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(colorHex)).Render(line))
+		if i < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+func parseHexColor(hex string) (int, int, int, bool) {
+	if len(hex) != 7 || hex[0] != '#' {
+		return 0, 0, 0, false
+	}
+	r, err := strconv.ParseInt(hex[1:3], 16, 64)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	g, err := strconv.ParseInt(hex[3:5], 16, 64)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	b, err := strconv.ParseInt(hex[5:7], 16, 64)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return int(r), int(g), int(b), true
+}
+
+func lerp(a, c int, t float64) int {
+	return int(float64(a) + (float64(c)-float64(a))*t)
+}
+
+func FigWithPalette(start, step int) string {
+	lines := figLines()
 	/* Colors that I like
 	123 + 1: Red to Purple
 	159 + 1: Red to Purple but more "alive"
 
 	*/
-	start := 159
-	step := 1
-
 	var b strings.Builder
 	for i, line := range lines {
 		color := start + i + step

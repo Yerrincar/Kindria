@@ -19,4 +19,5 @@ type Book struct {
 	Bookpath    string
 	Rating      sql.NullFloat64
 	Status      string
+	ReadingDate string
 }

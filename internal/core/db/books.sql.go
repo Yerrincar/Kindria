@@ -22,7 +22,7 @@ func (q *Queries) CheckBookExists(ctx context.Context, fileName string) (int64, 
 }
 
 const insertBooks = `-- name: InsertBooks :many
-INSERT INTO books (title, author, description, genres, language, file_name, bookPath, rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, title, author, description, genres, language, file_name, bookpath, rating, status
+INSERT INTO books (title, author, description, genres, language, file_name, bookPath, rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, title, author, description, genres, language, file_name, bookpath, rating, status, reading_date
 `
 
 type InsertBooksParams struct {
@@ -65,6 +65,7 @@ func (q *Queries) InsertBooks(ctx context.Context, arg InsertBooksParams) ([]Boo
 			&i.Bookpath,
 			&i.Rating,
 			&i.Status,
+			&i.ReadingDate,
 		); err != nil {
 			return nil, err
 		}
@@ -80,17 +81,18 @@ func (q *Queries) InsertBooks(ctx context.Context, arg InsertBooksParams) ([]Boo
 }
 
 const listBooks = `-- name: ListBooks :many
-SELECT title, author, file_name, bookPath, rating, genres, status FROM books ORDER BY title
+SELECT title, author, file_name, bookPath, rating, genres, status, reading_date FROM books ORDER BY title
 `
 
 type ListBooksRow struct {
-	Title    string
-	Author   string
-	FileName string
-	Bookpath string
-	Rating   sql.NullFloat64
-	Genres   string
-	Status   string
+	Title       string
+	Author      string
+	FileName    string
+	Bookpath    string
+	Rating      sql.NullFloat64
+	Genres      string
+	Status      string
+	ReadingDate string
 }
 
 func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
@@ -110,6 +112,7 @@ func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
 			&i.Rating,
 			&i.Genres,
 			&i.Status,
+			&i.ReadingDate,
 		); err != nil {
 			return nil, err
 		}
@@ -125,7 +128,7 @@ func (q *Queries) ListBooks(ctx context.Context) ([]ListBooksRow, error) {
 }
 
 const selectAllBooks = `-- name: SelectAllBooks :many
-SELECT id, title, author, description, genres, language, file_name, bookpath, rating, status FROM books ORDER BY title
+SELECT id, title, author, description, genres, language, file_name, bookpath, rating, status, reading_date FROM books ORDER BY title
 `
 
 func (q *Queries) SelectAllBooks(ctx context.Context) ([]Book, error) {
@@ -148,6 +151,7 @@ func (q *Queries) SelectAllBooks(ctx context.Context) ([]Book, error) {
 			&i.Bookpath,
 			&i.Rating,
 			&i.Status,
+			&i.ReadingDate,
 		); err != nil {
 			return nil, err
 		}
@@ -215,15 +219,16 @@ func (q *Queries) UpdateRating(ctx context.Context, arg UpdateRatingParams) erro
 }
 
 const updateStatus = `-- name: UpdateStatus :exec
-UPDATE books SET status = ? WHERE file_name = ?
+UPDATE books SET status = ?, reading_date = ? WHERE file_name = ?
 `
 
 type UpdateStatusParams struct {
-	Status   string
-	FileName string
+	Status      string
+	ReadingDate string
+	FileName    string
 }
 
 func (q *Queries) UpdateStatus(ctx context.Context, arg UpdateStatusParams) error {
-	_, err := q.db.ExecContext(ctx, updateStatus, arg.Status, arg.FileName)
+	_, err := q.db.ExecContext(ctx, updateStatus, arg.Status, arg.ReadingDate, arg.FileName)
 	return err
 }

@@ -2,6 +2,7 @@ package tui
 
 import (
 	metadata "Kindria/internal/core/api/books"
+	uiTheme "Kindria/internal/tui/theme"
 	"Kindria/internal/utils"
 	kindle "Kindria/tools"
 	"context"
@@ -33,6 +34,7 @@ const (
 	librayState
 	fileState
 	kindleState
+	themeState
 	sideFocus focusArea = iota
 	contentFocus
 )
@@ -69,6 +71,9 @@ type MainModel struct {
 	kindleSyncing bool
 	kindleLoader  bool
 	kindleStatus  string
+	themes        []uiTheme.Palette
+	currentTheme  uiTheme.Palette
+	themeCursor   int
 }
 
 type Model struct {
@@ -143,9 +148,49 @@ func debugLog(format string, args ...any) {
 	log.Printf("tui: "+format, args...)
 }
 
+func applyThemePalette(t uiTheme.Palette) {
+	normal = lipgloss.Color(t.Normal)
+	subtle = lipgloss.AdaptiveColor{Light: t.SubtleLight, Dark: t.SubtleDark}
+	borders = lipgloss.AdaptiveColor{Light: t.BorderLight, Dark: t.BorderDark}
+	highlight = lipgloss.AdaptiveColor{Light: t.HighlightLight, Dark: t.HighlightDark}
+	list = lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), true, true, true, true).
+		BorderForeground(subtle)
+}
+
+func applyFilePickerTheme(fp *filepicker.Model) {
+	styles := fp.Styles
+	styles.Cursor = styles.Cursor.Foreground(highlight).Bold(true)
+	styles.Directory = styles.Directory.Foreground(borders).Bold(true)
+	styles.File = styles.File.Foreground(normal)
+	styles.Symlink = styles.Symlink.Foreground(highlight)
+	styles.Permission = styles.Permission.Foreground(subtle)
+	styles.FileSize = styles.FileSize.Foreground(subtle)
+	styles.Selected = styles.Selected.Foreground(highlight).Bold(true)
+	styles.DisabledCursor = styles.DisabledCursor.Foreground(subtle)
+	styles.DisabledFile = styles.DisabledFile.Foreground(lipgloss.Color("#ff6b6b"))
+	styles.DisabledSelected = styles.DisabledSelected.Foreground(lipgloss.Color("#ff6b6b"))
+	styles.EmptyDirectory = styles.EmptyDirectory.Foreground(subtle)
+	fp.Styles = styles
+}
+
 /* ----- MainModel ----- */
 
 func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
+	themes := uiTheme.All()
+	currentTheme := uiTheme.Default()
+	if persistedTheme, err := uiTheme.LoadSelected(); err == nil {
+		currentTheme = persistedTheme
+	}
+	applyThemePalette(currentTheme)
+	themeCursor := 0
+	for i, t := range themes {
+		if t.Name == currentTheme.Name {
+			themeCursor = i
+			break
+		}
+	}
+
 	p := paginator.New()
 	p.Type = paginator.Dots
 	p.ActiveDot = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "252"}).Render("•")
@@ -168,6 +213,7 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 	fp.AutoHeight = false
 	fp.ShowPermissions = false
 	fp.ShowSize = false
+	applyFilePickerTheme(&fp)
 	library := &Model{
 		books:              b,
 		paginator:          p,
@@ -176,7 +222,7 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 		coverRenderPending: make(map[string]struct{}),
 		handler:            *h,
 		activeArea:         int(sideFocus),
-		MenuOptions:        []string{"Home", "Books", "To-Be Read", "Add Book", "Synchronize \nKindle"},
+		MenuOptions:        []string{"Home", "Books", "To-Be Read", "Add Book", "Synchronize \nKindle", "Themes"},
 		showRatingInput:    false,
 		ratingInput:        t,
 		allBooks:           b,
@@ -192,6 +238,9 @@ func InitialModel(b []*metadata.Package, h *metadata.Handler) *MainModel {
 		selectedOrder: []string{},
 		kindleBooks:   []string{},
 		kindlePicked:  make(map[string]struct{}),
+		themes:        themes,
+		currentTheme:  currentTheme,
+		themeCursor:   themeCursor,
 	}
 }
 
@@ -200,11 +249,10 @@ func (m *MainModel) Init() tea.Cmd {
 }
 
 func (m *MainModel) View() string {
-	fig := utils.Fig()
+	fig := utils.FigWithGradient(m.currentTheme.HighlightDark, m.currentTheme.BorderDark)
 	if m.state == homeState {
 		return lipgloss.Place(m.library.width, m.library.height, lipgloss.Center, lipgloss.Center,
-			fig+"\n  󱉟 Library"+strings.Repeat(" ", 15)+"l/L"+"\n  󱉟 To-Be Read"+strings.Repeat(" ", 12)+
-				"t/T"+"\n  󱉟 Add Book"+strings.Repeat(" ", 14)+"a/A"+"\n  󱉟 Synchronize Kindle"+strings.Repeat(" ", 4)+"k/K")
+			fig+"\n"+m.HomeMenuView())
 	}
 	if m.state == fileState {
 		return m.FilePickerView()
@@ -212,8 +260,46 @@ func (m *MainModel) View() string {
 	if m.state == kindleState {
 		return m.KindleView()
 	}
+	if m.state == themeState {
+		return m.ThemeView()
+	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Left, m.SideBarView(), m.library.View())
+}
+
+func (m *MainModel) HomeMenuView() string {
+	type homeItem struct {
+		label string
+		key   string
+	}
+	items := []homeItem{
+		{label: "󱉟 Library", key: "l/L"},
+		{label: "󱉟 To-Be Read", key: "t/T"},
+		{label: "󱉟 Add Book", key: "a/A"},
+		{label: "󱉟 Synchronize Kindle", key: "k/K"},
+		{label: "󱉟 Themes", key: "c/C"},
+	}
+
+	labelWidth := 0
+	for _, it := range items {
+		if w := lipgloss.Width(it.label); w > labelWidth {
+			labelWidth = w
+		}
+	}
+
+	labelStyle := lipgloss.NewStyle().Width(labelWidth + 6)
+	keyStyle := lipgloss.NewStyle().Foreground(highlight)
+	rows := make([]string, 0, len(items))
+	for _, it := range items {
+		row := lipgloss.JoinHorizontal(
+			lipgloss.Left,
+			labelStyle.Render("  "+it.label),
+			keyStyle.Render(it.key),
+		)
+		rows = append(rows, row)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
 func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -310,6 +396,7 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.state == fileState {
+		applyFilePickerTheme(&m.filePicker)
 		panelHeight := m.library.height + 2
 		pickerHeight, _ := m.filePickerLayout(panelHeight)
 		m.filePicker.SetHeight(pickerHeight)
@@ -396,6 +483,10 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.state = kindleState
 						m.library.activeArea = int(contentFocus)
 						return m, tea.Batch(tea.ClearScreen, m.loadKindleBooksCmd())
+					case "Themes":
+						m.state = themeState
+						m.library.activeArea = int(contentFocus)
+						return m, tea.ClearScreen
 					}
 				}
 			}
@@ -464,6 +555,10 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.state = kindleState
 						m.library.activeArea = int(contentFocus)
 						return m, tea.Batch(tea.ClearScreen, m.loadKindleBooksCmd())
+					case "Themes":
+						m.state = themeState
+						m.library.activeArea = int(contentFocus)
+						return m, tea.ClearScreen
 					}
 				}
 			}
@@ -534,6 +629,76 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.state == themeState {
+		if m.library.activeArea == int(sideFocus) {
+			if keyMsg, ok := msg.(tea.KeyMsg); ok {
+				switch keyMsg.String() {
+				case "ctrl+l":
+					m.library.activeArea = int(contentFocus)
+					return m, nil
+				case "enter":
+					selectedOption := m.library.MenuOptions[m.library.sideBarCursor]
+					switch selectedOption {
+					case "Home":
+						m.state = homeState
+						return m, tea.ClearScreen
+					case "Books", "To-Be Read":
+						m.state = librayState
+						m.library.activeArea = int(contentFocus)
+						return m, m.library.SetView(selectedOption)
+					case "Add Book":
+						m.state = fileState
+						m.library.activeArea = int(contentFocus)
+						return m, tea.Batch(tea.ClearScreen, m.filePicker.Init())
+					case "Synchronize Kindle", "Synchronize \nKindle":
+						m.state = kindleState
+						m.library.activeArea = int(contentFocus)
+						return m, tea.Batch(tea.ClearScreen, m.loadKindleBooksCmd())
+					case "Themes":
+						m.state = themeState
+						m.library.activeArea = int(contentFocus)
+						return m, tea.ClearScreen
+					}
+				}
+			}
+			newLib, cmd := m.library.Update(msg)
+			m.library = newLib.(*Model)
+			return m, cmd
+		}
+
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.library.activeArea = int(sideFocus)
+				return m, nil
+			case "up", "k":
+				if m.themeCursor > 0 {
+					m.themeCursor--
+				}
+				return m, nil
+			case "down", "j":
+				if m.themeCursor < len(m.themes)-1 {
+					m.themeCursor++
+				}
+				return m, nil
+			case "enter", " ":
+				if len(m.themes) == 0 {
+					return m, nil
+				}
+				m.currentTheme = m.themes[m.themeCursor]
+				applyThemePalette(m.currentTheme)
+				applyFilePickerTheme(&m.filePicker)
+				if err := uiTheme.SaveSelected(m.currentTheme.Name); err != nil {
+					log.Printf("Error saving selected theme: %v", err)
+				}
+				return m, tea.ClearScreen
+			}
+		}
+		return m, nil
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -567,6 +732,13 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.library.activeArea = int(contentFocus)
 				return m, tea.Batch(tea.ClearScreen, m.loadKindleBooksCmd())
 			}
+		case "c", "C":
+			if m.state == homeState {
+				m.state = themeState
+				m.library.sideBarCursor = 5
+				m.library.activeArea = int(contentFocus)
+				return m, tea.ClearScreen
+			}
 		case "ctrl+h", "esc":
 			if m.library.activeArea == int(contentFocus) {
 				m.library.activeArea = int(sideFocus)
@@ -594,6 +766,10 @@ func (m *MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = kindleState
 					m.library.activeArea = int(contentFocus)
 					return m, tea.Batch(tea.ClearScreen, m.loadKindleBooksCmd())
+				case "Themes":
+					m.state = themeState
+					m.library.activeArea = int(contentFocus)
+					return m, tea.ClearScreen
 				}
 			}
 		}
@@ -734,23 +910,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, tea.ClearScreen)
 			}
 		case "r", "R":
-			err := m.handler.UpdateBookStatus("Read", m.books[m.cursor].BookFile)
+			readingDate, err := m.handler.UpdateBookStatus("Read", m.books[m.cursor].BookFile)
 			if err != nil {
 				log.Printf("Error trying to update status: %v", err)
 			}
 			m.books[m.cursor].Status = "Read"
+			m.books[m.cursor].ReadingDate = readingDate
 		case "u", "U":
-			err := m.handler.UpdateBookStatus("Unread", m.books[m.cursor].BookFile)
+			readingDate, err := m.handler.UpdateBookStatus("Unread", m.books[m.cursor].BookFile)
 			if err != nil {
 				log.Printf("Error trying to update status: %v", err)
 			}
 			m.books[m.cursor].Status = "Unread"
+			m.books[m.cursor].ReadingDate = readingDate
 		case "t", "T":
-			err := m.handler.UpdateBookStatus("To Be Read", m.books[m.cursor].BookFile)
+			readingDate, err := m.handler.UpdateBookStatus("To Be Read", m.books[m.cursor].BookFile)
 			if err != nil {
 				log.Printf("Error trying to update status: %v", err)
 			}
 			m.books[m.cursor].Status = "To Be Read"
+			m.books[m.cursor].ReadingDate = readingDate
 		case "s":
 			m.showRatingInput = true
 			m.ratingInput.Reset()
@@ -846,7 +1025,8 @@ func (m Model) View() string {
 	}
 
 	book := lipgloss.JoinVertical(lipgloss.Top, rows...)
-	books := lipgloss.JoinHorizontal(lipgloss.Top, book)
+	libraryHint := lipgloss.NewStyle().Foreground(normal).Faint(true).Render("  ↑/↓ (j/k): move  ←/→ (h/l): page  r/u/t: status  s: rate  esc: sidebar")
+	books := lipgloss.JoinVertical(lipgloss.Left, book, "", libraryHint)
 	library := libraryBorderStyle.Render(books)
 	contentSide := (lipgloss.JoinVertical(lipgloss.Bottom, library, m.lowBarView()))
 	b.WriteString(contentSide)
@@ -1008,7 +1188,7 @@ func (m *MainModel) SideBarView() string {
 		Width(itemWidth).
 		PaddingLeft(1).
 		MarginBottom(1)
-	activeStyle := inactiveStyle.Foreground(lipgloss.Color("#7D56F4"))
+	activeStyle := inactiveStyle.Foreground(highlight)
 
 	if m.library.activeArea == int(sideFocus) {
 		style = style.BorderForeground(borders)
@@ -1044,26 +1224,32 @@ func (m *Model) lowBarView() string {
 	genresLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Genres:")
 	ratingLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Rating:")
 	statusLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Status:")
+	readingDateLabel := lipgloss.NewStyle().Foreground(normal).Bold(true).Render("Reading Date:")
 
 	title := titleLabel + " " + selectedBook.Metadata.Title
 	author := authorLabel + " " + selectedBook.Metadata.Author
 	genres := strings.Join(selectedBook.Metadata.Genres, ", ")
 	status := statusLabel + " " + selectedBook.Status
 	ratingValue := strconv.FormatFloat(selectedBook.Rating, 'f', 1, 64)
+	readingDate := selectedBook.ReadingDate
+	if strings.TrimSpace(readingDate) == "" {
+		readingDate = "Not read yet"
+	}
+	readingDateText := readingDateLabel + " " + readingDate
 
 	innerWidth := contentWidth - 4
 	columnGap := 2
 	columnWidth := (innerWidth-columnGap)/3 + 1
 
 	leftCol := lipgloss.NewStyle().Width(columnWidth).Render(
-		title + "\n\n" + genresLabel + " " + genres,
+		title + "\n" + genresLabel + " " + genres,
 	)
 	medCol := lipgloss.NewStyle().Width(columnWidth).Render(
-		author + "\n\n" + status + " ",
+		author + "\n" + status,
 	)
 	stars := utils.GetStarRating(selectedBook.Rating)
 	rightCol := lipgloss.NewStyle().Width(columnWidth).Render(
-		ratingLabel + " " + ratingValue + "\n\n" + stars,
+		ratingLabel + " " + ratingValue + " " + stars + "\n" + readingDateText,
 	)
 
 	finalString := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, strings.Repeat(" ", columnGap), medCol, strings.Repeat(" ", columnGap-1), rightCol)
@@ -1104,6 +1290,7 @@ func (m *Model) SetView(option string) tea.Cmd {
 }
 
 func (m *MainModel) FilePickerView() string {
+	applyFilePickerTheme(&m.filePicker)
 	sidebarView := m.SideBarView()
 	panelWidth := m.library.width - m.sideBarWidth - 4
 	panelHeight := m.library.height + 2
@@ -1137,6 +1324,8 @@ func (m *MainModel) FilePickerView() string {
 	}
 	s.WriteString("Directory: " + m.filePicker.CurrentDirectory)
 	s.WriteString("\n  Press i to edit directory path, Enter to select an .epub file")
+	fileHint := lipgloss.NewStyle().Foreground(normal).Faint(true).Render("↑/↓ (j/k): move  → (l/enter): open/select  ← (h/esc): up  i: edit path  s: import")
+	s.WriteString("\n  " + fileHint)
 	if m.showFileInput {
 		s.WriteString("\n\n  " + m.fileInput.View())
 	}
@@ -1201,6 +1390,8 @@ func (m *MainModel) KindleView() string {
 	if m.kindleDocsURI != "" {
 		s.WriteString("  Source: " + m.kindleDocsURI + "\n")
 	}
+	kindleHint := lipgloss.NewStyle().Foreground(normal).Faint(true).Render("↑/↓ (j/k): move  i: selection mode  space/enter: toggle  s: sync  esc: sidebar")
+	s.WriteString("  " + kindleHint + "\n")
 	s.WriteString("  s: Synchronize all books\n")
 	s.WriteString("  i: Select which books synchronize\n")
 	if m.kindleSelect {
@@ -1232,6 +1423,51 @@ func (m *MainModel) KindleView() string {
 		s.WriteString("\n  " + m.kindleStatus + "\n")
 	}
 
+	content := truncateBlockHeight(truncateViewLines(s.String(), panelWidth-2), panelHeight)
+	return lipgloss.JoinHorizontal(lipgloss.Left, sidebarView, style.Render(content))
+}
+
+func (m *MainModel) ThemeView() string {
+	sidebarView := m.SideBarView()
+	panelWidth := m.library.width - m.sideBarWidth - 4
+	panelHeight := m.library.height + 2
+	if panelWidth < 24 {
+		panelWidth = 24
+	}
+	if panelHeight < 12 {
+		panelHeight = 12
+	}
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true, true, true, true).
+		BorderForeground(subtle).
+		Width(panelWidth).
+		Height(panelHeight)
+	if m.library.activeArea == int(contentFocus) {
+		style = style.BorderForeground(borders)
+	}
+
+	var s strings.Builder
+	s.WriteString("  Color themes\n")
+	themeHint := lipgloss.NewStyle().Foreground(normal).Faint(true).Render("↑/↓ (j/k): move  enter/space: apply  esc: sidebar")
+	s.WriteString("  " + themeHint + "\n\n")
+
+	for i, t := range m.themes {
+		prefix := "    "
+		if i == m.themeCursor {
+			prefix = "  > "
+		}
+		marker := " "
+		if t.Name == m.currentTheme.Name {
+			marker = "*"
+		}
+		lineStyle := lipgloss.NewStyle().Foreground(normal)
+		if i == m.themeCursor {
+			lineStyle = lineStyle.Foreground(highlight)
+		}
+		s.WriteString(lineStyle.Render(prefix + "[" + marker + "] " + t.Name))
+		s.WriteString("\n")
+	}
+
+	s.WriteString("\n  Current: " + m.currentTheme.Name)
 	content := truncateBlockHeight(truncateViewLines(s.String(), panelWidth-2), panelHeight)
 	return lipgloss.JoinHorizontal(lipgloss.Left, sidebarView, style.Render(content))
 }

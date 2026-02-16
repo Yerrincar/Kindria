@@ -39,6 +39,9 @@ func main() {
 	}
 	h := &metadata.Handler{Queries: db.New(database), DB: database, CM: metadata.NewCoverManager()}
 	log.Printf("DB Open")
+	if err := h.EnsureReadingDateColumn(); err != nil {
+		log.Printf("Error ensuring reading_date column: %v", err)
+	}
 
 	log.Printf("Inserting books")
 	_, err = h.InsertBooks()
