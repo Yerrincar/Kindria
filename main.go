@@ -55,7 +55,10 @@ func main() {
 	go h.UpdateCacheCovers()
 
 	log.Printf("Initializing TUI")
-	p := tea.NewProgram(tui.InitialModel(books, h), tea.WithAltScreen())
+	p := tea.NewProgram(
+		tui.InitialModel(books, h),
+		tea.WithAltScreen(),
+	)
 	if _, err := p.Run(); err != nil {
 		log.Fatalf("Error starting Kindria: %v", err)
 	}
