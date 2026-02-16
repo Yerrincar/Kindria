@@ -2,7 +2,9 @@
 
 TUI EPUB library manager.
 
-**Demo:**https://github.com/user-attachments/assets/e75827ac-d573-4a6a-8c21-63024f9acf0c
+## Demo
+
+https://github.com/user-attachments/assets/e75827ac-d573-4a6a-8c21-63024f9acf0c
 
 ## Highlights
 
